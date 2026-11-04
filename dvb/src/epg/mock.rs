@@ -19,7 +19,7 @@ use tokio::{
     net::{TcpListener, UdpSocket},
 };
 
-use super::{
+use crate::{
     si::{
         tests::{
             eit_section, event, extended_event_descriptor, pat_section, sdt_section,

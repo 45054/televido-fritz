@@ -10,14 +10,14 @@
 use std::{fmt, net::SocketAddr, time::Duration};
 
 use eyre::WrapErr;
-use reqwest::Url;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpStream, UdpSocket},
     time::timeout,
 };
+use url::Url;
 
-use super::ts::PACKET_SIZE;
+use crate::ts::PACKET_SIZE;
 
 const DEFAULT_PORT: u16 = 554;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);

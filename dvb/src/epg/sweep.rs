@@ -19,12 +19,11 @@ use tokio::{
 
 use super::{
     mux::{self, Mux},
-    rtsp::StatusError,
     scan::{self, ScanError},
     store::EpgStore,
     Inner,
 };
-use crate::fritzbox::FritzChannel;
+use crate::{rtsp::StatusError, FritzChannel};
 
 /// Timing of the sweep.
 #[derive(Clone, Copy, Debug)]
@@ -212,13 +211,10 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::{
-        super::{
-            scan::Scan,
-            si::{Eit, EitEvent, Pat, ServiceKey},
-            store::Urgency,
-        },
+        super::{scan::Scan, store::Urgency},
         *,
     };
+    use crate::si::{Eit, EitEvent, Pat, ServiceKey};
 
     const NOW: i64 = 1_700_000_000;
 

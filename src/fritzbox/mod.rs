@@ -10,11 +10,13 @@
 //! versions only provide the separate HD and SD lists. Every entry is an
 //! `rtsp://` URL which is played with mpv.
 //!
-//! The programme guide is read from the DVB stream itself, see [`epg`].
+//! This module holds the GTK side: loading the lists over HTTP, the channel
+//! logos and the view. The parts without GTK live in the workspace crate
+//! `televido-dvb`: the playlist parser ([`televido_dvb::m3u`]), the RTSP
+//! client and the transport stream parsers, and the programme guide, which
+//! is read from the DVB stream itself ([`televido_dvb::epg`]).
 
-mod epg;
 mod logos;
-mod m3u;
 mod tvapp;
 mod view;
 
@@ -23,15 +25,15 @@ use std::time::Duration;
 use eyre::WrapErr;
 use gettextrs::gettext;
 use reqwest::{StatusCode, Url};
+use televido_dvb::m3u;
 
 use crate::config::{APP_ID, PROJECT_URL, VERSION};
 
 pub use self::{
-    epg::{unix_now, Epg, NowNext},
     logos::{LogoIndex, LogoSources},
-    m3u::FritzChannel,
     view::TvFritzView,
 };
+pub use televido_dvb::{unix_now, Epg, FritzChannel, NowNext};
 
 pub const DEFAULT_ADDRESS: &str = "fritz.box";
 

@@ -16,7 +16,7 @@ use std::{
 
 use tokio::time::{timeout, Instant};
 
-use super::{
+use crate::{
     rtsp::Stream,
     si::{Eit, Pat, Sdt, ServiceKey, PID_EIT, PID_PAT, PID_SDT},
     ts::SectionAssembler,

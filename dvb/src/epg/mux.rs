@@ -12,7 +12,7 @@
 //! PMT PID is also listed in the PAT of the multiplex, which identifies the
 //! service of the channel without relying on names.
 
-use super::{
+use crate::{
     si::{Pat, Sdt, ServiceKey},
     FritzChannel,
 };

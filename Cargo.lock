@@ -2347,11 +2347,24 @@ dependencies = [
  "serde",
  "serde_json",
  "smart-default",
+ "televido-dvb",
  "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "zbus",
+]
+
+[[package]]
+name = "televido-dvb"
+version = "0.6.0-beta.1"
+dependencies = [
+ "eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

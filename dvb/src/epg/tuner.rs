@@ -5,7 +5,8 @@
 //! Shares the tuner of the FRITZ!Box between playback and reading the
 //! programme guide.
 //!
-//! The FRITZ!Box delivers only one stream per device (see [`crate::mpv`]).
+//! The FRITZ!Box delivers only one stream per device, so the player of the
+//! application has to announce playback (see [`Tuner::begin_playback`]).
 //! Playback always has priority: scanning stops as soon as playback starts
 //! and resumes after it ended.
 

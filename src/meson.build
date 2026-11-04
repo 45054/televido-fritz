@@ -63,7 +63,7 @@ custom_target(
 test(
   'Cargo tests',
   cargo,
-  args: ['test', cargo_opt],
+  args: ['test', '--workspace', cargo_opt],
   env: cargo_env,
   timeout: 1800,
 )

@@ -13,23 +13,22 @@
 //! RTSP sessions while no channel is playing, those of channels without
 //! programme information first.
 //!
-//! - [`rtsp`] is a minimal RTSP client that receives the transport stream.
-//! - [`ts`], [`si`] and [`text`] parse the transport stream and the tables.
-//! - [`scan`] reads the tables of one multiplex.
-//! - [`mux`] groups the channels by multiplex and finds their service.
-//! - [`store`] holds the events.
-//! - [`tuner`] and [`sweep`] share the tuner with playback.
+//! The transport stream is received and parsed by the modules at the crate
+//! root: [`crate::rtsp`] is a minimal RTSP client, [`crate::ts`],
+//! [`crate::si`] and [`crate::text`] parse the transport stream and the
+//! tables. The private submodules of this module build the guide from them:
+//!
+//! - `scan` reads the tables of one multiplex.
+//! - `mux` groups the channels by multiplex and finds their service.
+//! - `store` holds the events.
+//! - `tuner` and `sweep` share the tuner with playback (see [`Tuner`]).
 
 #[cfg(test)]
 mod mock;
 mod mux;
-mod rtsp;
 mod scan;
-mod si;
 mod store;
 mod sweep;
-mod text;
-mod ts;
 mod tuner;
 
 use std::{
@@ -44,9 +43,14 @@ use std::{
 use tokio::sync::{mpsc::UnboundedSender, watch};
 
 use self::{store::EpgStore, sweep::Timing};
-use super::FritzChannel;
+use crate::FritzChannel;
 
-pub use self::{mux::identity, store::NowNext, sweep::unix_now, tuner::Tuner};
+pub use self::{
+    mux::identity,
+    store::{Event, NowNext},
+    sweep::unix_now,
+    tuner::Tuner,
+};
 
 #[derive(Debug)]
 pub struct Epg {
@@ -174,9 +178,9 @@ mod tests {
 
     use super::{
         mock::{MockBox, MockMux, MockService, ServiceInformationOnly},
-        si::ServiceKey,
         *,
     };
+    use crate::si::ServiceKey;
 
     fn service(
         id: u16,

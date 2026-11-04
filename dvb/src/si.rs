@@ -5,7 +5,7 @@
 //! The DVB tables needed for the programme guide: PAT, SDT and EIT
 //! (ISO/IEC 13818-1 and ETSI EN 300 468).
 
-use super::{text, ts::Section};
+use crate::{text, ts::Section};
 
 pub const PID_PAT: u16 = 0x00;
 pub const PID_SDT: u16 = 0x11;
@@ -331,7 +331,7 @@ fn parse_duration(data: [u8; 3]) -> Option<i64> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::fritzbox::epg::ts::tests::long_section;
+    use crate::ts::tests::long_section;
 
     pub fn short_event_descriptor(language: &[u8; 3], name: &[u8], text: &[u8]) -> Vec<u8> {
         let mut data = language.to_vec();

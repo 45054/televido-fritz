@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use super::{
     mux::{match_services, Mux},
     scan::Scan,
-    si::{Eit, ServiceKey},
 };
+use crate::si::{Eit, ServiceKey};
 
 /// Events starting later than this are not kept.
 const HORIZON: i64 = 12 * 3600;
@@ -247,14 +247,13 @@ impl EpgStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        super::{
-            mux::group,
-            scan::Scan,
-            si::{EitEvent, Pat},
-        },
+        super::{mux::group, scan::Scan},
         *,
     };
-    use crate::fritzbox::FritzChannel;
+    use crate::{
+        si::{EitEvent, Pat},
+        FritzChannel,
+    };
 
     const NOW: i64 = 1_700_000_000;
     const URL: &str = "rtsp://192.168.178.1:554/?avm=1&freq=450&msys=dvbc&mtype=256qam&sr=6900&pids=0,16,17,18,20,100,110";
