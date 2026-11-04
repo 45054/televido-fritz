@@ -18,12 +18,12 @@ use tokio::{
 };
 
 use super::{
-    mux::{self, Mux},
+    mux::Mux,
     scan::{self, ScanError},
     store::EpgStore,
     Inner,
 };
-use crate::{rtsp::StatusError, FritzChannel};
+use crate::rtsp::StatusError;
 
 /// Timing of the sweep.
 #[derive(Clone, Copy, Debug)]
@@ -86,21 +86,21 @@ fn next_mux<'a>(
         .map(|(_, mux)| mux)
 }
 
-/// Scans the multiplexes of `channels` until `cancel` is dropped.
+/// Scans `muxes`, the channels grouped by `mux::group`, until `cancel` is
+/// dropped.
 ///
 /// After every scan, the next multiplex is chosen anew: channels without
 /// programme information come first, and the events of other multiplexes
 /// ("EIT other") that a scan provided are taken into account.
 pub async fn run(
     inner: Arc<Inner>,
-    channels: Vec<FritzChannel>,
+    muxes: Arc<[Mux]>,
     mut cancel: watch::Receiver<()>,
     notify: UnboundedSender<()>,
 ) {
     inner.load_cache().await;
     let _ = notify.send(());
 
-    let muxes = mux::group(&channels);
     let timing = inner.timing;
     // multiplexes that failed, and when to try them again
     let mut retry_at: HashMap<String, Instant> = HashMap::new();
@@ -217,10 +217,13 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::{
-        super::{scan::Scan, store::Urgency},
+        super::{mux, scan::Scan, store::Urgency},
         *,
     };
-    use crate::si::{Eit, EitEvent, Pat, ServiceKey};
+    use crate::{
+        si::{Eit, EitEvent, Pat, ServiceKey},
+        FritzChannel,
+    };
 
     const NOW: i64 = 1_700_000_000;
 

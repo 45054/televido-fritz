@@ -72,9 +72,9 @@ struct Inner {
     /// the same time.
     cache_lock: tokio::sync::Mutex<()>,
     timing: Timing,
-    /// The multiplexes of the channels given to [`Epg::start`], for the
-    /// feed.
-    muxes: Mutex<Vec<Mux>>,
+    /// The multiplexes of the channels given to [`Epg::start`], shared by
+    /// the sweep and the feed.
+    muxes: Mutex<Arc<[Mux]>>,
     /// The receiver of change notifications while the guide is started.
     notify: Mutex<Option<UnboundedSender<()>>>,
 }
@@ -94,7 +94,7 @@ impl Epg {
                 cache_loaded: OnceCell::new(),
                 cache_lock: tokio::sync::Mutex::new(()),
                 timing,
-                muxes: Mutex::new(Vec::new()),
+                muxes: Mutex::new(Arc::new([])),
                 notify: Mutex::new(None),
             }),
             cancel: Mutex::new(None),
@@ -121,17 +121,18 @@ impl Epg {
         let (cancel, cancelled) = watch::channel(());
         // dropping the previous sender stops the previous sweep
         *self.cancel.lock().unwrap() = Some(cancel);
-        *self.inner.muxes.lock().unwrap() = mux::group(&channels);
+        let muxes: Arc<[Mux]> = mux::group(&channels).into();
+        *self.inner.muxes.lock().unwrap() = muxes.clone();
         *self.inner.notify.lock().unwrap() = Some(notify.clone());
 
-        tokio::spawn(sweep::run(self.inner.clone(), channels, cancelled, notify));
+        tokio::spawn(sweep::run(self.inner.clone(), muxes, cancelled, notify));
     }
 
     /// Stops the sweep. A running scan ends its session first. Running
     /// feeds stop adding to the guide.
     pub fn stop(&self) {
         self.cancel.lock().unwrap().take();
-        self.inner.muxes.lock().unwrap().clear();
+        *self.inner.muxes.lock().unwrap() = Arc::new([]);
         self.inner.notify.lock().unwrap().take();
     }
 
@@ -445,7 +446,12 @@ mod tests {
         let epg = Epg::with_timing(cache_file("stopping.json"), timing());
         let (cancel, cancelled) = watch::channel(());
         let (notify, _notifications) = unbounded_channel();
-        let sweep = tokio::spawn(sweep::run(epg.inner.clone(), channels, cancelled, notify));
+        let sweep = tokio::spawn(sweep::run(
+            epg.inner.clone(),
+            mux::group(&channels).into(),
+            cancelled,
+            notify,
+        ));
 
         timeout(Duration::from_secs(5), async {
             while server.setups.load(Ordering::SeqCst) == 0 {

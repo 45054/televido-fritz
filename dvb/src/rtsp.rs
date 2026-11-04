@@ -166,16 +166,6 @@ impl Stream {
         self.control.teardown().await;
     }
 
-    /// See [`Control::keepalive`].
-    pub async fn keepalive(&mut self) -> eyre::Result<()> {
-        self.control.keepalive().await
-    }
-
-    /// See [`Control::session_timeout`].
-    pub fn session_timeout(&self) -> Duration {
-        self.control.session_timeout
-    }
-
     /// Splits the stream into its connection and its receiver, which can be
     /// used at the same time, e.g. to send a keepalive while receiving.
     pub fn parts(&mut self) -> (&mut Control, &mut Receiver) {

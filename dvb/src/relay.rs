@@ -43,7 +43,7 @@ use tokio::{
     time::{sleep, timeout},
 };
 
-use crate::{epg::identity, rtsp, Tuner};
+use crate::{epg::identity, rtsp, task::stopped, Tuner};
 
 /// One RTP payload: usually 7 transport stream packets of 188 bytes, always
 /// a multiple of 188 bytes. Cloning it is cheap.
@@ -240,11 +240,6 @@ impl fmt::Debug for Relay {
             .field("stats", &self.stats())
             .finish()
     }
-}
-
-/// Resolves when `stop` is set or all handles are gone.
-async fn stopped(stop: &mut watch::Receiver<bool>) {
-    let _ = stop.wait_for(|stop| *stop).await;
 }
 
 async fn run(

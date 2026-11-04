@@ -31,7 +31,7 @@ use tokio::{
     time::{interval_at, Instant, MissedTickBehavior},
 };
 
-use crate::{unix_now, Chunk};
+use crate::{task::stopped, unix_now, Chunk};
 
 /// The written data reaches the file at least this often, so that a crash
 /// loses little.
@@ -41,6 +41,8 @@ const BUFFER_SIZE: usize = 1024 * 1024;
 /// bytes. File systems allow 255 bytes, which leaves room for ` (2)`.
 const MAX_NAME_LENGTH: usize = 150;
 const EXTENSION: &str = "ts";
+/// How many names a recording tries, see [`candidate_paths`].
+const MAX_CANDIDATES: usize = 1000;
 
 /// Why a recording ended with an error. Cheap to clone, as every handle can
 /// ask.
@@ -79,8 +81,8 @@ impl Recording {
     /// Starts writing the chunks of `receiver` to `path`.
     ///
     /// Creates the directory if needed. If the file exists, a free name is
-    /// chosen with [`unique_path`]; [`Recording::path`] returns the actual
-    /// one. Must be called within the tokio runtime.
+    /// chosen: `name (2).ts`, `name (3).ts`, …; [`Recording::path`] returns
+    /// the actual one. Must be called within the tokio runtime.
     pub async fn start(receiver: broadcast::Receiver<Chunk>, path: PathBuf) -> eyre::Result<Self> {
         if let Some(parent) = path
             .parent()
@@ -150,30 +152,26 @@ impl Recording {
     }
 }
 
-/// Creates the file at `path`, or at the next free name if it exists.
+/// Creates the file at `path`, or at the first free name of
+/// [`candidate_paths`] if it exists.
 async fn create_unique(path: &Path) -> eyre::Result<(File, PathBuf)> {
-    // another program may create the file between the check and creating it
-    for _ in 0..8 {
-        let path = unique_path(path);
+    // `create_new` checks and creates at once, so unlike checking whether
+    // a name is free first, it can't race with another program
+    for candidate in candidate_paths(path).take(MAX_CANDIDATES) {
         match OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&path)
+            .open(&candidate)
             .await
         {
-            Ok(file) => return Ok((file, path)),
+            Ok(file) => return Ok((file, candidate)),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(e) => {
-                return Err(e).wrap_err_with(|| format!("failed to create {}", path.display()))
+                return Err(e).wrap_err_with(|| format!("failed to create {}", candidate.display()))
             }
         }
     }
     eyre::bail!("failed to find a free file name for {}", path.display())
-}
-
-/// Resolves when `stop` is set.
-async fn stopped(stop: &mut watch::Receiver<bool>) {
-    let _ = stop.wait_for(|stop| *stop).await;
 }
 
 async fn run(inner: Arc<Inner>, mut receiver: broadcast::Receiver<Chunk>, file: File) {
@@ -232,12 +230,9 @@ async fn run(inner: Arc<Inner>, mut receiver: broadcast::Receiver<Chunk>, file: 
     inner.outcome.send_replace(Some(outcome));
 }
 
-/// Returns `path` if no file exists there, and otherwise the first free one
-/// of `name (2).ts`, `name (3).ts`, …
-pub fn unique_path(path: &Path) -> PathBuf {
-    if !path.exists() {
-        return path.to_owned();
-    }
+/// Returns `path`, followed by `name (2).ts`, `name (3).ts`, … in the
+/// same directory: the names a recording tries until one is free.
+fn candidate_paths(path: &Path) -> impl Iterator<Item = PathBuf> + '_ {
     let stem = path
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
@@ -247,10 +242,9 @@ pub fn unique_path(path: &Path) -> PathBuf {
         .map(|extension| format!(".{}", extension.to_string_lossy()))
         .unwrap_or_default();
 
-    (2..)
-        .map(|number| path.with_file_name(format!("{stem} ({number}){extension}")))
-        .find(|candidate| !candidate.exists())
-        .expect("a free name exists")
+    std::iter::once(path.to_owned()).chain(
+        (2..).map(move |number| path.with_file_name(format!("{stem} ({number}){extension}"))),
+    )
 }
 
 /// Returns the file name of a recording, e.g.
@@ -402,21 +396,29 @@ mod tests {
     }
 
     #[test]
-    fn finds_unique_paths() {
-        let dir = temp_dir("unique");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("Show.ts");
-        assert_eq!(unique_path(&path), path);
-
-        std::fs::write(&path, b"").unwrap();
-        assert_eq!(unique_path(&path), dir.join("Show (2).ts"));
-        std::fs::write(dir.join("Show (2).ts"), b"").unwrap();
-        assert_eq!(unique_path(&path), dir.join("Show (3).ts"));
-
-        let path = dir.join("no extension");
-        std::fs::write(&path, b"").unwrap();
-        assert_eq!(unique_path(&path), dir.join("no extension (2)"));
-        std::fs::remove_dir_all(&dir).unwrap();
+    fn names_candidate_paths() {
+        let names = |path: &str| {
+            candidate_paths(Path::new(path))
+                .take(3)
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names("/videos/Show.ts"),
+            [
+                "/videos/Show.ts",
+                "/videos/Show (2).ts",
+                "/videos/Show (3).ts"
+            ]
+        );
+        assert_eq!(
+            names("/videos/no extension"),
+            [
+                "/videos/no extension",
+                "/videos/no extension (2)",
+                "/videos/no extension (3)"
+            ]
+        );
     }
 
     #[tokio::test]
@@ -460,6 +462,13 @@ mod tests {
         second.stop();
         assert_eq!(second.finished().await.unwrap().bytes, PACKET_SIZE as u64);
         drop(sender);
+        let (_sender, receiver) = broadcast::channel(4);
+        let third = Recording::start(receiver, dir.join("sub/Show.ts"))
+            .await
+            .unwrap();
+        assert_eq!(third.path(), dir.join("sub/Show (3).ts"));
+        third.stop();
+        third.finished().await.unwrap();
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

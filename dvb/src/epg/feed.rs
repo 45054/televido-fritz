@@ -26,6 +26,7 @@ use tokio::{
 use super::{identity, mux::Mux, scan::Collector, sweep::unix_now, Inner};
 use crate::{
     si::{PID_EIT, PID_PAT, PID_SDT},
+    task::stopped,
     ts::SectionAssembler,
     Chunk,
 };
@@ -48,6 +49,7 @@ impl LiveFeed {
         url: &str,
         receiver: broadcast::Receiver<Chunk>,
     ) -> Self {
+        let wanted = identity(url);
         let mux = inner
             .muxes
             .lock()
@@ -56,7 +58,7 @@ impl LiveFeed {
             .find(|mux| {
                 mux.channels
                     .iter()
-                    .any(|channel| channel.identity == identity(url))
+                    .any(|channel| channel.identity == wanted)
             })
             .cloned();
         if mux.is_none() {
@@ -82,11 +84,6 @@ impl LiveFeed {
     pub async fn join(mut self) {
         let _ = (&mut self.task).await;
     }
-}
-
-/// Resolves when `stop` is set or the feed was dropped.
-async fn stopped(stop: &mut watch::Receiver<bool>) {
-    let _ = stop.wait_for(|stop| *stop).await;
 }
 
 async fn run(

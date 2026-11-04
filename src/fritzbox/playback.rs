@@ -260,27 +260,18 @@ pub fn shutdown() {
         recording.stop();
     }
 
-    let (torn_down, finished) = runtime().block_on(async move {
-        let torn_down = match relay {
-            Some(relay) => tokio::time::timeout(TEARDOWN_TIMEOUT, relay.finished())
-                .await
-                .is_ok(),
-            None => true,
-        };
-        let finished = tokio::time::timeout(FINISH_TIMEOUT, async {
+    let finished = runtime().block_on(async move {
+        if let Some(relay) = relay {
+            await_teardown(relay).await;
+        }
+        tokio::time::timeout(FINISH_TIMEOUT, async {
             for recording in &recordings {
                 let _ = recording.finished().await;
             }
         })
         .await
-        .is_ok();
-        (torn_down, finished)
+        .is_ok()
     });
-    if !torn_down {
-        if let Some(session) = session {
-            tracing::warn!("the relay of {} did not stop in time", session.url);
-        }
-    }
     if !finished {
         tracing::warn!("a recording did not complete its file in time");
     }
@@ -481,15 +472,18 @@ async fn stop_session(stop_any_player: bool) {
 /// Stops `session` and waits (for a moment) for the TEARDOWN of its relay.
 async fn tear_down(session: Session) {
     session.stop();
-    let relay = session.relay.clone();
-    let torn_down = tokio(async move {
-        tokio::time::timeout(TEARDOWN_TIMEOUT, relay.finished())
-            .await
-            .is_ok()
-    })
-    .await;
-    if !torn_down {
-        tracing::warn!("the relay of {} did not stop in time", session.url);
+    tokio(await_teardown(session.relay.clone())).await;
+}
+
+/// Waits (for a moment) until the stopped `relay` has ended, i.e. its
+/// TEARDOWN reached the FRITZ!Box, and warns if it takes too long. Must run
+/// on the tokio runtime.
+async fn await_teardown(relay: Relay) {
+    if tokio::time::timeout(TEARDOWN_TIMEOUT, relay.finished())
+        .await
+        .is_err()
+    {
+        tracing::warn!("the relay of {} did not stop in time", relay.url());
     }
 }
 

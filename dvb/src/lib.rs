@@ -28,6 +28,7 @@ pub mod recorder;
 pub mod relay;
 pub mod rtsp;
 pub mod si;
+mod task;
 pub mod text;
 pub mod ts;
 
