@@ -51,11 +51,16 @@ impl Collector {
         }
     }
 
-    pub fn push(&mut self, data: &[u8], assembler: &mut SectionAssembler, now: Instant) {
+    /// Adds the sections completed by `data`. Returns whether a table is
+    /// new or changed.
+    pub fn push(&mut self, data: &[u8], assembler: &mut SectionAssembler, now: Instant) -> bool {
+        let mut changed = false;
         for section in assembler.push_data(data) {
             if let Some(pat) = Pat::parse(&section) {
+                changed |= self.pat.as_ref() != Some(&pat);
                 self.pat = Some(pat);
             } else if let Some(sdt) = Sdt::parse(&section) {
+                changed |= self.sdt.as_ref() != Some(&sdt);
                 self.sdt = Some(sdt);
             } else if let Some(eit) = Eit::parse(&section) {
                 let key = (eit.table_id, eit.service, eit.section_number);
@@ -68,9 +73,11 @@ impl Collector {
                         self.last_new_present_following = Some(now);
                     }
                     self.sections.insert(key, eit);
+                    changed = true;
                 }
             }
         }
+        changed
     }
 
     /// Returns `true` if the present and following events of all wanted
@@ -104,6 +111,15 @@ impl Collector {
         match self.last_new_present_following {
             Some(last) => (last + QUIET_TIME).min(start + MAX_DURATION),
             None => start + MAX_DURATION,
+        }
+    }
+
+    /// Returns what was collected so far, and goes on collecting.
+    pub fn snapshot(&self) -> Scan {
+        Scan {
+            pat: self.pat.clone(),
+            sdt: self.sdt.clone(),
+            eit: self.sections.values().cloned().collect(),
         }
     }
 

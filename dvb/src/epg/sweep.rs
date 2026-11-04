@@ -34,6 +34,10 @@ pub struct Timing {
     pub poll: Duration,
     /// Pause before a multiplex that failed is tried again.
     pub retry: Duration,
+    /// How often a [`super::LiveFeed`] adds new tables to the guide.
+    pub feed_update: Duration,
+    /// How often a [`super::LiveFeed`] saves the cache at most.
+    pub feed_save: Duration,
 }
 
 impl Default for Timing {
@@ -42,6 +46,8 @@ impl Default for Timing {
             settle: Duration::from_secs(3),
             poll: Duration::from_secs(60),
             retry: Duration::from_secs(5 * 60),
+            feed_update: Duration::from_secs(5),
+            feed_save: Duration::from_secs(60),
         }
     }
 }
