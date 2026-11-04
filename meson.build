@@ -6,7 +6,7 @@
 project(
   'televido',
   'rust',
-  version: '0.6.0-beta.1',
+  version: '0.6.0-beta.3',
   meson_version: '>= 0.61.0',
 )
 
