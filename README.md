@@ -52,7 +52,7 @@ Televido can play and record the DVB-C channels of a FRITZ!Box Cable (e.g. 6490,
   - Recording requires *Receive the Stream in Televido*; while it is turned off, the record button is hidden.
 - **Filter:** the field above the channels filters them by name while typing, like on the *Live* page. Typing while a channel is selected goes to the filter as well, <kbd>Ctrl</kbd>+<kbd>F</kbd> focuses it and <kbd>Esc</kbd> clears it.
 - **Channel logos** are downloaded from AVM and cached: from `https://tv.avm.de/tvapp/logos/` like in the FRITZ!Box web interface, otherwise from `https://download.avm.de/tv/logos/`.
-- **Stuttering:** the FRITZ!Box sends the streams via UDP, so firewalls must allow incoming UDP traffic from the FRITZ!Box. If the picture stutters while mpv opens the stream directly (*Receive the Stream in Televido* turned off), the kernel's maximum socket receive buffer may be too small for the `buffer_size` of 4 MiB that Televido passes to mpv:
+- **Stuttering:** the FRITZ!Box sends the streams via UDP, so firewalls must allow incoming UDP traffic from the FRITZ!Box. If the picture stutters, the kernel's maximum socket receive buffer may be too small for the 4 MiB that Televido asks for when it receives the stream, and passes to mpv as `buffer_size` when mpv opens the stream directly (*Receive the Stream in Televido* turned off):
   ```
   echo 'net.core.rmem_max=4194304' | sudo tee /etc/sysctl.d/90-televido-rtp.conf && sudo sysctl --system
   ```

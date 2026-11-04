@@ -52,7 +52,7 @@ Televido kann die DVB-C-Sender einer FRITZ!Box Cable (z. B. 6490, 6591, 6660, 66
   - Aufnehmen setzt *Stream in Televido empfangen* voraus; ist die Einstellung ausgeschaltet, ist der Aufnahmeknopf ausgeblendet.
 - **Filter:** Das Feld über den Sendern filtert sie schon beim Tippen nach Namen, wie auf der Seite *Live*. Tippen bei ausgewähltem Sender landet ebenfalls im Filter, <kbd>Strg</kbd>+<kbd>F</kbd> setzt den Fokus hinein und <kbd>Esc</kbd> leert ihn.
 - **Senderlogos** werden von AVM heruntergeladen und zwischengespeichert: von `https://tv.avm.de/tvapp/logos/` wie in der Benutzeroberfläche der FRITZ!Box, ersatzweise von `https://download.avm.de/tv/logos/`.
-- **Ruckeln:** Die FRITZ!Box sendet die Streams per UDP, Firewalls müssen daher eingehenden UDP-Verkehr von der FRITZ!Box zulassen. Ruckelt das Bild, während mpv den Stream direkt öffnet (*Stream in Televido empfangen* ausgeschaltet), ist eventuell der maximale Empfangspuffer des Kernels zu klein für die `buffer_size` von 4 MiB, die Televido an mpv übergibt:
+- **Ruckeln:** Die FRITZ!Box sendet die Streams per UDP, Firewalls müssen daher eingehenden UDP-Verkehr von der FRITZ!Box zulassen. Ruckelt das Bild, ist eventuell der maximale Empfangspuffer des Kernels zu klein für die 4 MiB, die Televido anfordert, wenn es den Stream empfängt, und als `buffer_size` an mpv übergibt, wenn mpv den Stream direkt öffnet (*Stream in Televido empfangen* ausgeschaltet):
   ```
   echo 'net.core.rmem_max=4194304' | sudo tee /etc/sysctl.d/90-televido-rtp.conf && sudo sysctl --system
   ```

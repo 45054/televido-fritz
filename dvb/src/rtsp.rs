@@ -15,9 +15,14 @@
 //! connection and the receiver, so that the keepalive doesn't hold up
 //! receiving the stream.
 
-use std::{fmt, net::SocketAddr, time::Duration};
+use std::{
+    fmt,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    time::Duration,
+};
 
 use eyre::WrapErr;
+use socket2::{Domain, Protocol, SockRef, Socket, Type};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpStream, UdpSocket},
@@ -37,6 +42,11 @@ const MAX_BODY_SIZE: usize = 64 * 1024;
 const USER_AGENT: &str = "Televido";
 /// The session timeout if the server doesn't name one (RFC 2326, 12.37).
 const DEFAULT_SESSION_TIMEOUT: Duration = Duration::from_secs(60);
+/// The receive buffer of the RTP socket, like the `buffer_size` that mpv
+/// was given when it opened the stream itself: the kernel's default (about
+/// 200 KiB) holds only about 100 ms of an HD channel, and the stream
+/// arrives in bursts. Linux limits it to `net.core.rmem_max`.
+const RECEIVE_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 /// Lower bound of the keepalive interval, against servers that announce a
 /// tiny timeout.
 const MIN_KEEPALIVE_INTERVAL: Duration = Duration::from_millis(500);
@@ -387,19 +397,47 @@ fn ensure_ok(method: &'static str, response: &Response) -> eyre::Result<()> {
 
 /// Binds an even UDP port for RTP and the following port for RTCP.
 async fn bind_udp_pair(peer: SocketAddr) -> eyre::Result<(UdpSocket, UdpSocket, u16)> {
-    let any = if peer.is_ipv4() { "0.0.0.0" } else { "::" };
+    let any: IpAddr = if peer.is_ipv4() {
+        Ipv4Addr::UNSPECIFIED.into()
+    } else {
+        Ipv6Addr::UNSPECIFIED.into()
+    };
 
     for _ in 0..32 {
-        let rtp = UdpSocket::bind((any, 0)).await?;
+        let rtp = bind_rtp(SocketAddr::new(any, 0))?;
         let port = rtp.local_addr()?.port();
         if port % 2 != 0 || port == u16::MAX {
             continue;
         }
         if let Ok(rtcp) = UdpSocket::bind((any, port + 1)).await {
+            // Linux reports twice the size that applies to the data
+            match SockRef::from(&rtp).recv_buffer_size() {
+                Ok(size) => tracing::debug!("UDP receive buffer of the RTP socket: {size} bytes"),
+                Err(e) => tracing::debug!("failed to read the UDP receive buffer size: {e}"),
+            }
             return Ok((rtp, rtcp, port));
         }
     }
     eyre::bail!("no free UDP port pair for RTP/RTCP")
+}
+
+/// Binds the RTP socket to `address`, with a receive buffer of
+/// [`RECEIVE_BUFFER_SIZE`].
+fn bind_rtp(address: SocketAddr) -> eyre::Result<UdpSocket> {
+    let socket = Socket::new(
+        Domain::for_address(address),
+        Type::DGRAM,
+        Some(Protocol::UDP),
+    )?;
+    // The kernel silently limits the size to `net.core.rmem_max`, which is
+    // no reason to fail: the default may suffice for the channel, and the
+    // README explains how to raise the limit.
+    if let Err(e) = socket.set_recv_buffer_size(RECEIVE_BUFFER_SIZE) {
+        tracing::debug!("failed to set the UDP receive buffer size: {e}");
+    }
+    socket.set_nonblocking(true)?;
+    socket.bind(&address.into())?;
+    Ok(UdpSocket::from_std(socket.into())?)
 }
 
 fn parse_response_head(head: &str) -> eyre::Result<Response> {
@@ -502,6 +540,23 @@ fn rtp_payload(packet: &[u8]) -> Option<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn binds_a_port_pair_with_a_large_receive_buffer() {
+        let peer = SocketAddr::from((Ipv4Addr::LOCALHOST, DEFAULT_PORT));
+        let (rtp, rtcp, port) = bind_udp_pair(peer).await.unwrap();
+        assert_eq!(port % 2, 0);
+        assert_eq!(rtp.local_addr().unwrap().port(), port);
+        assert_eq!(rtcp.local_addr().unwrap().port(), port + 1);
+
+        // as much as the kernel allows (Linux reports twice the size)
+        let limit = std::fs::read_to_string("/proc/sys/net/core/rmem_max")
+            .ok()
+            .and_then(|limit| limit.trim().parse::<usize>().ok())
+            .unwrap_or(RECEIVE_BUFFER_SIZE);
+        let size = SockRef::from(&rtp).recv_buffer_size().unwrap();
+        assert!(size >= RECEIVE_BUFFER_SIZE.min(limit), "{size} bytes");
+    }
 
     #[test]
     fn parses_responses() {

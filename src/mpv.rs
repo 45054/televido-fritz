@@ -45,8 +45,9 @@ const EXIT_CODE_QUIT: i32 = 4;
 
 /// Needed when mpv opens the RTSP stream of the FRITZ!Box itself: the
 /// FRITZ!Box doesn't support RTSP over TCP, and the default receive buffer
-/// overflows with HD channels. Meaningless for a pipe, so they aren't part
-/// of the FritzTV arguments in the settings.
+/// overflows with HD channels. Meaningless for a pipe (the relay asks for
+/// the same receive buffer on its own socket, see `televido_dvb::rtsp`), so
+/// they aren't part of the FritzTV arguments in the settings.
 const RTSP_ARGUMENTS: [(&str, &str); 2] = [
     ("--rtsp-transport=", "--rtsp-transport=udp"),
     // `-append` keeps other `--demuxer-lavf-o` options of the user
