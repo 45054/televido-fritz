@@ -16,7 +16,7 @@ use smart_default::SmartDefault;
 
 use crate::{
     config::{APP_ID, PROFILE, VERSION},
-    fritzbox::FritzBox,
+    fritzbox::{playback, FritzBox},
     launcher::{ExternalProgram, ExternalProgramType, ProgramSelector},
     mpv,
     preferences::TvPreferencesDialog,
@@ -61,6 +61,8 @@ mod imp {
         }
 
         fn shutdown(&self) {
+            // first, so that the TEARDOWN of the relay reaches the FRITZ!Box
+            playback::shutdown();
             self.fritzbox.epg().shutdown();
             mpv::terminate();
             self.parent_shutdown();

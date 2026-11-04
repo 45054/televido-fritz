@@ -10,6 +10,7 @@ src/application.rs
 src/channel_icons.rs
 src/fritzbox/logos.rs
 src/fritzbox/mod.rs
+src/fritzbox/playback.rs
 src/fritzbox/view.blp
 src/fritzbox/view.rs
 src/shortcuts-dialog.blp

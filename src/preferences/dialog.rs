@@ -50,6 +50,8 @@ mod imp {
         fritztv_show_radio: Cell<bool>,
         #[property(get, set)]
         fritztv_epg: Cell<bool>,
+        #[property(get, set)]
+        fritztv_relay: Cell<bool>,
         #[property(get)]
         mpv_missing: Cell<bool>,
         #[property(get)]
@@ -214,6 +216,9 @@ mod imp {
                 .build();
             self.settings
                 .bind_fritztv_epg(&*self.obj(), "fritztv-epg")
+                .build();
+            self.settings
+                .bind_fritztv_relay(&*self.obj(), "fritztv-relay")
                 .build();
             self.mpv_missing.set(!mpv::is_installed());
             self.fritzbox_address_row

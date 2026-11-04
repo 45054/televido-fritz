@@ -133,6 +133,13 @@ template $TvPreferencesDialog: Adw.PreferencesDialog {
       }
 
       Adw.SwitchRow {
+        title: _("Receive the Stream in Televido");
+        subtitle: _("Televido reads the stream of the FRITZ!Box and passes it to mpv. This keeps the program guide current while watching and allows recording. Turn off to let mpv open the stream directly.");
+        active: bind template.fritztv-relay bidirectional;
+        sensitive: bind template.fritztv-enabled;
+      }
+
+      Adw.SwitchRow {
         title: _("Show Program Guide");
         subtitle: _("Reads the current and next shows from the cable signal. While no channel is playing, the FRITZ!Box is tuned briefly to each frequency.");
         active: bind template.fritztv-epg bidirectional;

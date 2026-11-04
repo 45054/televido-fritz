@@ -14,9 +14,11 @@
 //! logos and the view. The parts without GTK live in the workspace crate
 //! `televido-dvb`: the playlist parser ([`televido_dvb::m3u`]), the RTSP
 //! client and the transport stream parsers, and the programme guide, which
-//! is read from the DVB stream itself ([`televido_dvb::epg`]).
+//! is read from the DVB stream itself ([`televido_dvb::epg`]). [`playback`]
+//! plays a channel through the relay of `televido-dvb`.
 
 mod logos;
+pub mod playback;
 mod tvapp;
 mod view;
 

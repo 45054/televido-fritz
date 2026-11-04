@@ -8,7 +8,8 @@ use std::cell::{Cell, RefCell};
 use adw::{glib, gtk, prelude::*, subclass::prelude::*};
 
 use crate::{
-    application::VideoInfo, channel_icons::load_channel_icon, mpv, utils::show_error, TvApplication,
+    application::VideoInfo, channel_icons::load_channel_icon, fritzbox, utils::show_error,
+    TvApplication,
 };
 
 use super::channels::{ChannelKind, ChannelObject};
@@ -146,7 +147,7 @@ mod imp {
                     }
                     ChannelKind::Fritz | ChannelKind::FritzRadio => {
                         if let Err(e) =
-                            mpv::play(&channel.name(), &channel.stream_url(), true).await
+                            fritzbox::playback::play(&channel.name(), &channel.stream_url()).await
                         {
                             show_error(e);
                         }

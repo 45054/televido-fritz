@@ -19,18 +19,19 @@ use crate::{application::TvApplication, window::TvWindow};
 
 pub use self::async_resource::AsyncResource;
 
+/// The tokio runtime of the application, see [`tokio`].
+pub fn runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+    RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().unwrap())
+}
+
 pub async fn tokio<Fut, T>(fut: Fut) -> T
 where
     Fut: Future<Output = T> + Send + 'static,
     T: Send + 'static,
 {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-    RUNTIME
-        .get_or_init(|| tokio::runtime::Runtime::new().unwrap())
-        .spawn(fut)
-        .await
-        .expect("tokio thread panicked")
+    runtime().spawn(fut).await.expect("tokio thread panicked")
 }
 
 pub fn spawn<Fut>(fut: Fut)
