@@ -232,16 +232,23 @@ fn start(
 
 /// Makes `process` the current one and watches it.
 fn watch_new(process: gio::Subprocess, title: &str, mode: Mode) {
+    // Like in `play()`: only a process that doesn't take over the tuner
+    // releases it. A FRITZ!Box channel continues the playback, and with
+    // `play_stdin` the caller's relay holds the tuner.
+    let releases_tuner = matches!(mode, Mode::Direct { uses_tuner: false });
     let previous = CURRENT.with(|current| {
         current.replace(Some(Current {
             process: process.clone(),
             mode,
         }))
     });
-    // started by a concurrent call while this one waited for `stop()`
+    // started by a concurrent call while this one waited for `stop()`; its
+    // `watch()` sees that it was replaced and leaves the tuner alone
     if let Some(previous) = previous {
         previous.process.send_signal(SIGTERM);
-        previous.mode.finish();
+        if previous.mode.finish() && releases_tuner {
+            TvApplication::get().fritzbox().epg().tuner().end_playback();
+        }
     }
     spawn(watch(process, title.to_owned()));
 }

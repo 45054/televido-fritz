@@ -550,6 +550,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_feed_adds_what_it_collected_while_the_guide_was_off() {
+        let server = MockBox::start(muxes()).await;
+        let channels = vec![channel(&server, "Das Erste HD", 450, 256)];
+        let cache = cache_file("feed-restart.json");
+        let _ = std::fs::remove_file(&cache);
+        let epg = Epg::with_timing(cache, timing());
+
+        let relay = crate::Relay::open(&channels[0].url, epg.tuner())
+            .await
+            .unwrap();
+        let (notify, _notifications) = unbounded_channel();
+        epg.start(channels.clone(), notify);
+        let feed = epg.feed(&channels[0].url, relay.subscribe());
+        // the guide is turned off before the feed added anything
+        epg.stop();
+
+        // the feed collects all tables meanwhile, which the mock repeats
+        // without ever changing their version
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        let now = unix_now();
+        assert!(epg.now_next(&channels[0].url, now).is_none());
+
+        // the playing channel isn't scanned, so only the feed can add them
+        let (notify, mut notifications) = unbounded_channel();
+        epg.start(channels.clone(), notify);
+        wait_for(&mut notifications, || {
+            epg.now_next(&channels[0].url, now).is_some()
+        })
+        .await;
+        let now_next = epg.now_next(&channels[0].url, now).unwrap();
+        assert_eq!(now_next.current.unwrap().title, "Tagesschau");
+        assert_eq!(server.setups.load(Ordering::SeqCst), 1, "only the relay");
+
+        relay.stop();
+        relay.finished().await.unwrap();
+        timeout(Duration::from_secs(5), feed.join()).await.unwrap();
+        epg.stop();
+    }
+
+    #[tokio::test]
     async fn a_feed_of_an_unknown_channel_drains_the_stream() {
         let epg = Epg::with_timing(cache_file("feed-unknown.json"), timing());
         let (sender, receiver) = broadcast::channel(4);

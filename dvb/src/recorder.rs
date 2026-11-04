@@ -299,7 +299,8 @@ pub fn file_name_with_offset(
             end -= 1;
         }
         name.truncate(end);
-        name = name.trim_end().to_owned();
+        // the cut may leave a dot, like `sanitize` removes
+        name = name.trim_end_matches(['.', ' ']).to_owned();
     }
     format!("{name}.{EXTENSION}")
 }
@@ -383,6 +384,18 @@ mod tests {
         assert!(name.len() <= MAX_NAME_LENGTH + 3, "{name}");
         assert!(name.starts_with("ARTE HD 2026-11-04 20-15 ÜÜ"));
         assert!(name.ends_with("Ü.ts"));
+
+        // no `..ts` or ` .ts` if the cut comes after a dot or a space
+        let prefix = "ARTE HD 2026-11-04 20-15 ";
+        let kept = "x".repeat(MAX_NAME_LENGTH - prefix.len() - 1);
+        for filler in [". ", ".", " ."] {
+            let title = format!("{kept}{filler}Rest");
+            assert_eq!(
+                file_name_with_offset("ARTE HD", start, cet, Some(&title)),
+                format!("{prefix}{kept}.ts"),
+                "{title:?}"
+            );
+        }
 
         // the local time
         assert!(file_name("ZDF HD", start, None).starts_with("ZDF HD 2026-11-0"));

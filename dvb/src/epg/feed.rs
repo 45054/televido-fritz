@@ -149,7 +149,7 @@ async fn run(
 struct Feed<'a> {
     inner: &'a Inner,
     mux: &'a Mux,
-    /// New tables were collected since the last update.
+    /// New tables were collected since they were last added to the guide.
     changed: bool,
     /// The guide changed since the cache was saved.
     unsaved: bool,
@@ -162,12 +162,14 @@ impl Feed<'_> {
         if !self.changed {
             return;
         }
-        self.changed = false;
-
-        // the guide is off
+        // While the guide is off, the tables are kept for when it is
+        // started again: the collector only reports a change for a new
+        // table version, so the multiplex would otherwise stay without
+        // events until the broadcaster updates them.
         let Some(notify) = self.inner.notify.lock().unwrap().clone() else {
             return;
         };
+        self.changed = false;
 
         let scan = collector.snapshot();
         let now = unix_now();

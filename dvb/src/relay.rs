@@ -461,15 +461,17 @@ mod tests {
         let relay = Relay::open(&channel_url(&server), tuner.clone())
             .await
             .unwrap();
+        // without keepalives, the session would have expired twice over
         sleep(Duration::from_millis(2600)).await;
 
         // still streaming
         recv(&mut relay.subscribe()).await;
         assert!(relay.is_running());
         assert_eq!(server.expired.load(Ordering::SeqCst), 0);
-        // every 500 ms
+        // one every 500 ms, but a loaded machine may delay them, so only
+        // check that they keep coming; the session not expiring is the point
         let keepalives = server.keepalives.load(Ordering::SeqCst);
-        assert!((4..=6).contains(&keepalives), "{keepalives} keepalives");
+        assert!(keepalives >= 2, "{keepalives} keepalives");
 
         relay.stop();
         relay.finished().await.unwrap();
