@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Televido main\n"
 "Report-Msgid-Bugs-To: https://github.com/45054/televido-fritz/issues\n"
-"POT-Creation-Date: 2026-10-11 19:30+0000\n"
-"PO-Revision-Date: 2026-10-11 21:00+0200\n"
+"POT-Creation-Date: 2026-11-04 21:59+0000\n"
+"PO-Revision-Date: 2026-11-04 22:00+0000\n"
 "Last-Translator: David Cabot <d-k-bo@mailbox.org>\n"
 "Language-Team: \n"
 "Language: de\n"
@@ -31,12 +31,27 @@ msgstr ""
 #. Translators: search terms to find this application. Do NOT translate or
 #. localize the semicolons. The list MUST also end with a semicolon.
 #: data/io.github._45054.TelevidoFritz.desktop.in:13
-msgid "TV;Television;Livestream;Mediathek;DVB-C;FRITZ!Box;"
-msgstr "TV;Fernsehen;Livestream;Mediathek;DVB-C;FRITZ!Box;Kabelfernsehen;"
+msgid "TV;Television;Livestream;Mediathek;DVB-C;FRITZ!Box;Recording;"
+msgstr ""
+"TV;Fernsehen;Livestream;Mediathek;DVB-C;FRITZ!Box;Kabelfernsehen;Aufnahme;"
+"Videorekorder;"
 
 #: data/io.github._45054.TelevidoFritz.gschema.xml:7
 msgid "Whether the settings of the previous app ID were taken over"
 msgstr "Ob die Einstellungen der vorherigen App-ID übernommen wurden"
+
+#: data/io.github._45054.TelevidoFritz.gschema.xml:95
+msgid "Whether Televido receives the stream itself and pipes it to mpv"
+msgstr ""
+"Ob Televido den Stream selbst empfängt und über eine Pipe an mpv weitergibt"
+
+#: data/io.github._45054.TelevidoFritz.gschema.xml:99
+msgid "The folder that recordings are written to"
+msgstr "Der Ordner, in den Aufnahmen geschrieben werden"
+
+#: data/io.github._45054.TelevidoFritz.gschema.xml:100
+msgid "Empty for the folder “Televido” in the Videos folder."
+msgstr "Leer für den Ordner „Televido“ im Videos-Ordner."
 
 #: data/io.github._45054.TelevidoFritz.metainfo.xml.in:7
 msgid "Access German-language public TV"
@@ -64,12 +79,13 @@ msgstr ""
 
 #: data/io.github._45054.TelevidoFritz.metainfo.xml.in:17
 msgid ""
-"Televido can also play the DVB-C channels of a FRITZ!Box Cable in the home "
-"network and shows their program guide, which it reads from the cable signal."
+"Televido can also play and record the DVB-C channels of a FRITZ!Box Cable in "
+"the home network and shows their program guide, which it reads from the "
+"cable signal."
 msgstr ""
 "Televido kann außerdem die DVB-C-Sender einer FRITZ!Box Cable im Heimnetz "
-"abspielen und zeigt ihre Programmvorschau an, die es aus dem Kabelsignal "
-"liest."
+"abspielen und aufnehmen und zeigt ihre Programmvorschau an, die es aus dem "
+"Kabelsignal liest."
 
 #: data/io.github._45054.TelevidoFritz.metainfo.xml.in:21
 msgid ""
@@ -99,39 +115,71 @@ msgstr "Suche in der Mediathek"
 msgid "Search results with the details of a show"
 msgstr "Suchergebnisse mit den Details einer Sendung"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:71
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:72
+msgid ""
+"Receive the FritzTV stream in Televido and pass it to mpv, which can be "
+"turned off in the preferences"
+msgstr ""
+"FritzTV-Stream in Televido empfangen und an mpv weitergeben, in den "
+"Einstellungen abschaltbar"
+
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:73
+msgid ""
+"Record FritzTV channels to transport stream files, also in the background "
+"without mpv"
+msgstr ""
+"FritzTV-Sender als Transport-Stream-Dateien aufnehmen, auch im Hintergrund "
+"ohne mpv"
+
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:74
+msgid "Choose the folder for recordings in the preferences"
+msgstr "Ordner für Aufnahmen in den Einstellungen wählen"
+
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:75
+msgid ""
+"Keep the programme guide of the playing FritzTV channel current while "
+"watching"
+msgstr ""
+"Programmvorschau des laufenden FritzTV-Senders während der Wiedergabe "
+"aktuell halten"
+
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:76
+msgid "Pause FritzTV channels and seek back within mpv's cache"
+msgstr "FritzTV-Sender anhalten und im Zwischenspeicher von mpv zurückspulen"
+
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:82
 msgid "First release of the fork with FRITZ!Box Cable support."
 msgstr "Erste Version des Forks mit Unterstützung für die FRITZ!Box Cable."
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:73
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:84
 msgid ""
 "Play the DVB-C channels of a FRITZ!Box Cable with mpv in the new FritzTV tab"
 msgstr ""
 "DVB-C-Sender einer FRITZ!Box Cable im neuen Reiter FritzTV mit mpv abspielen"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:74
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:85
 msgid ""
 "Show the programme guide of the FritzTV channels, read from the cable signal"
 msgstr ""
 "Programmvorschau der FritzTV-Sender anzeigen, gelesen aus dem Kabelsignal"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:75
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:86
 msgid "Show the logos of the FritzTV channels"
 msgstr "Logos der FritzTV-Sender anzeigen"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:76
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:87
 msgid "Filter the live and FritzTV channels by name while typing"
 msgstr "Live- und FritzTV-Sender beim Tippen nach Namen filtern"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:77
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:88
 msgid "Play all videos with mpv instead of the integrated player"
 msgstr "Alle Videos mit mpv statt mit dem integrierten Player abspielen"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:78
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:89
 msgid "Show the keyboard shortcuts in the new shortcuts dialog"
 msgstr "Tastenkürzel im neuen Tastenkürzel-Dialog anzeigen"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:79
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:90
 msgid ""
 "Use the app ID io.github._45054.TelevidoFritz instead of upstream's de.k_bo."
 "Televido and take over its settings"
@@ -139,99 +187,180 @@ msgstr ""
 "Die App-ID io.github._45054.TelevidoFritz statt de.k_bo.Televido des "
 "Originals verwenden und dessen Einstellungen übernehmen"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:86
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:97
 msgid "Add an integrated video player based on Clapper and ClapperGTK"
 msgstr ""
 "Integrierter Videoplayer auf Basis von Clapper und ClapperGTK hinzugefügt"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:93
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:104
 msgid "Allow removing and reordering live channels"
 msgstr "Live-Sender können nun entfernt und neu geordnet werden"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:94
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:105
 msgid "Add option to copy subtitles URL"
 msgstr "Option zum Kopieren der Untertitel-URL hinzugefügt"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:95
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:106
 msgid "Use MediathekViewWeb's advanced search syntax"
 msgstr "Verwende die erweiterte Such-Syntax von MediathekViewWeb"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:102
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:113
 msgid "Use adaptive dialogs for preferences, player selector and about dialog"
 msgstr ""
 "Für Einstellungen, Playerauswahl und „Über“-Dialog werden nun adaptive "
 "Dialoge verwendet"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:103
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:114
 msgid "Added French translation"
 msgstr "Übersetzung ins Französische hinzugefügt"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:110
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:121
 msgid "Added support for downloading content using Parabolic"
 msgstr "Videodownload mittels Parabolic wird nun unterstützt"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:111
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:122
 msgid "Added Dutch translation"
 msgstr "Übersetzung ins Niederländische hinzugefügt"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:118
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:129
 msgid "Added support for mobile devices"
 msgstr "Mobile Geräte werden nun unterstützt"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:125
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:136
 msgid "Added support for custom video players"
 msgstr "Benutzerdefinierte Videoplayer werden nun unterstützt"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:126
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:137
 msgid "Added support Daikhan as a video player"
 msgstr "Daikhan wird nun als Videoplayer unterstützt"
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:132
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:143
 msgid "If an error occurs, a graphical error message is shown."
 msgstr ""
 "Wenn ein Fehler auftritt, wird eine graphische Fehlermeldung angezeigt."
 
-#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:137
+#: data/io.github._45054.TelevidoFritz.metainfo.xml.in:148
 msgid "Initital release"
 msgstr "Erstveröffentlichung"
 
-#: src/application.rs:108
+#: src/application.rs:110
 msgid "Failed to load livestream channels"
 msgstr "Livestream-Sender konnten nicht geladen werden"
 
-#: src/application.rs:138
+#: src/application.rs:140
 msgid "Failed to connect to the session D-Bus"
 msgstr "Verbindung zum Sitzungs-D-Bus fehlgeschlagen"
 
-#: src/application.rs:204
+#: src/application.rs:206
 msgid "Failed to play video stream"
 msgstr "Videostream konnte nicht abgespielt werden"
 
-#: src/application.rs:250
+#: src/application.rs:252
 msgid "Failed to launch video downloader"
 msgstr "Videodownloader konnte nicht gestartet werden"
 
 #. translators: replace with your names, one per line
-#: src/application.rs:302
+#: src/application.rs:317
 msgid "translator-credits"
 msgstr ""
 "David Cabot\n"
 "Televido contributors"
 
 #. translators: `{}` is replaced by the address, e.g. `fritz.box`
-#: src/fritzbox/mod.rs:161
+#: src/fritzbox/mod.rs:167
 msgid "Could not connect to the FRITZ!Box at “{}”"
 msgstr "Keine Verbindung zur FRITZ!Box unter „{}“"
 
 #. translators: `{}` is replaced by a URL
-#: src/fritzbox/mod.rs:175
+#: src/fritzbox/mod.rs:181
 msgid "“{}” is not a channel list"
 msgstr "„{}“ ist keine Senderliste"
 
 #. translators: `{}` is replaced by the address entered by the user
-#: src/fritzbox/mod.rs:212
+#: src/fritzbox/mod.rs:218
 msgid "“{}” is not a valid address"
 msgstr "„{}“ ist keine gültige Adresse"
+
+#: src/fritzbox/playback.rs:239
+msgid ""
+"Televido records only while it is running. The recording is kept up to this "
+"point."
+msgstr ""
+"Televido nimmt nur auf, solange es läuft. Die Aufnahme bleibt bis zu diesem "
+"Zeitpunkt erhalten."
+
+#. translators: `{title}` is replaced by the title of the show, `{time}` by the time when the recording ends, e.g. 21:50
+#: src/fritzbox/playback.rs:562
+msgid "Recording “{title}” until {time}"
+msgstr "„{title}“ wird bis {time} Uhr aufgenommen"
+
+#. translators: `{}` is replaced by the channel name or the title of the show
+#: src/fritzbox/playback.rs:568
+msgid "Recording “{}”"
+msgstr "„{}“ wird aufgenommen"
+
+#. translators: `{}` is replaced by the channel name or the title of the show
+#: src/fritzbox/playback.rs:656
+msgid "The recording of “{}” failed"
+msgstr "Die Aufnahme von „{}“ ist fehlgeschlagen"
+
+#. translators: `{title}` is replaced by the channel name or the title of the show, `{size}` by the size of the file, e.g. 1.2 GB
+#: src/fritzbox/playback.rs:664
+msgid "Recorded “{title}” ({size})"
+msgstr "„{title}“ aufgenommen ({size})"
+
+#: src/fritzbox/playback.rs:699
+msgid ""
+"The FRITZ!Box sends Televido one channel at a time. Watching or recording "
+"another channel ends the recording."
+msgstr ""
+"Die FRITZ!Box sendet Televido nur einen Sender gleichzeitig. Wenn Sie einen "
+"anderen Sender ansehen oder aufnehmen, endet die Aufnahme."
+
+#. translators: `{}` is replaced by the channel name or the title of the show
+#: src/fritzbox/playback.rs:712
+msgid "Stop the recording of “{}”?"
+msgstr "Aufnahme von „{}“ beenden?"
+
+#: src/fritzbox/playback.rs:714
+msgid "_Stop Recording"
+msgstr "Aufnahme _beenden"
+
+#: src/fritzbox/playback.rs:723
+msgid "Stop Playback?"
+msgstr "Wiedergabe beenden?"
+
+#. translators: `{}` is replaced by the channel name
+#: src/fritzbox/playback.rs:725
+msgid ""
+"The FRITZ!Box sends Televido one channel at a time. Recording “{}” ends the "
+"playback of the current channel."
+msgstr ""
+"Die FRITZ!Box sendet Televido nur einen Sender gleichzeitig. Die Aufnahme "
+"von „{}“ beendet die Wiedergabe des aktuellen Senders."
+
+#: src/fritzbox/playback.rs:727
+msgid "_Stop Playback"
+msgstr "Wiedergabe _beenden"
+
+#: src/fritzbox/playback.rs:736
+msgid "_Cancel"
+msgstr "_Abbrechen"
+
+#. translators: `{}` is replaced by the channel name
+#: src/fritzbox/playback.rs:785
+msgid "“{}” stopped"
+msgstr "„{}“ wurde abgebrochen"
+
+#. translators: `{}` is replaced by the channel name
+#: src/fritzbox/playback.rs:791
+msgid "Could not play “{}”"
+msgstr "„{}“ konnte nicht abgespielt werden"
+
+#. translators: `{}` is replaced by the channel name
+#: src/fritzbox/playback.rs:796
+msgid "Could not record “{}”"
+msgstr "„{}“ konnte nicht aufgenommen werden"
 
 #: src/fritzbox/view.blp:33 src/live/view.blp:36
 msgid "Filter channels"
@@ -386,6 +515,27 @@ msgstr ""
 msgid "Play"
 msgstr "Abspielen"
 
+#: src/live/card.blp:60 src/live/card.rs:183
+msgid "Record"
+msgstr "Aufnehmen"
+
+#: src/live/card.blp:113
+msgid "Recording"
+msgstr "Aufnahme"
+
+#: src/live/card.rs:171
+msgid "Stop Recording"
+msgstr "Aufnahme beenden"
+
+#. translators: `{}` is replaced by the time when the recording ends, e.g. 21:50
+#: src/live/card.rs:176
+msgid "Recording until {}"
+msgstr "Aufnahme bis {} Uhr"
+
+#: src/live/card.rs:177
+msgid "Recording until stopped"
+msgstr "Aufnahme bis zum Beenden"
+
 #: src/live/view.rs:74
 msgid "No livestream channels available"
 msgstr "Keine Livestream-Sender verfügbar"
@@ -513,17 +663,17 @@ msgstr "Absteigend"
 msgid "Failed to query the MediathekViewWeb API"
 msgstr "Daten von der MediathekViewWeb-API konnten nicht abgerufen werden"
 
-#: src/mpv.rs:77
+#: src/mpv.rs:193
 msgid "mpv is not installed. Televido needs the mpv video player."
 msgstr "mpv ist nicht installiert. Televido benötigt den Videoplayer mpv."
 
-#: src/mpv.rs:108
+#: src/mpv.rs:230
 msgid "Failed to start mpv"
 msgstr "mpv konnte nicht gestartet werden"
 
 #. translators: `{channel}` is replaced by the channel name or the title of
 #. the show, `{error}` by the error message of mpv
-#: src/mpv.rs:229
+#: src/mpv.rs:370
 msgid "mpv could not play “{channel}”: {error}"
 msgstr "mpv konnte „{channel}“ nicht abspielen: {error}"
 
@@ -564,6 +714,7 @@ msgid "Video Player"
 msgstr "Videoplayer"
 
 #: src/preferences/dialog.blp:54 src/preferences/dialog.blp:70
+#: src/preferences/dialog.blp:162
 msgid "Change"
 msgstr "Ändern"
 
@@ -614,10 +765,32 @@ msgid "mpv Arguments for FritzTV"
 msgstr "mpv-Argumente für FritzTV"
 
 #: src/preferences/dialog.blp:136
+msgid "Receive the Stream in Televido"
+msgstr "Stream in Televido empfangen"
+
+#: src/preferences/dialog.blp:137
+msgid ""
+"Televido reads the stream of the FRITZ!Box and passes it to mpv. This keeps "
+"the program guide current while watching and allows recording. Turn off to "
+"let mpv open the stream directly."
+msgstr ""
+"Televido liest den Stream der FRITZ!Box und gibt ihn an mpv weiter. So "
+"bleibt die Programmvorschau während der Wiedergabe aktuell, und Aufnahmen "
+"sind möglich. Ausschalten, damit mpv den Stream direkt öffnet."
+
+#: src/preferences/dialog.blp:143 src/preferences/dialog.rs:116
+msgid "Recordings Folder"
+msgstr "Aufnahmeordner"
+
+#: src/preferences/dialog.blp:151
+msgid "Use Default Folder"
+msgstr "Standardordner verwenden"
+
+#: src/preferences/dialog.blp:169
 msgid "Show Program Guide"
 msgstr "Programmvorschau anzeigen"
 
-#: src/preferences/dialog.blp:137
+#: src/preferences/dialog.blp:170
 msgid ""
 "Reads the current and next shows from the cable signal. While no channel is "
 "playing, the FRITZ!Box is tuned briefly to each frequency."
@@ -625,7 +798,7 @@ msgstr ""
 "Liest die laufende und die nächste Sendung aus dem Kabelsignal. Solange kein "
 "Sender läuft, wird die FRITZ!Box kurz auf jede Frequenz eingestellt."
 
-#: src/preferences/dialog.rs:175
+#: src/preferences/dialog.rs:221
 msgid "No arguments"
 msgstr "Keine Argumente"
 
@@ -708,25 +881,29 @@ msgstr ""
 #. %Y is the year (with century)
 #. %H is the hours (24h format)
 #. %M is the minutes
-#: src/utils.rs:60
+#: src/utils.rs:64
 msgid "%b %-e, %Y %H:%M"
 msgstr "%-e. %b %Y %H.%M Uhr"
 
 #. translators:  %H is the hours (24h format)
 #. %M is the minutes
-#: src/utils.rs:70
+#: src/utils.rs:74
 msgid "%H:%M"
 msgstr "%H:%M"
 
-#: src/utils.rs:114
+#: src/utils.rs:118
 msgid "Details"
 msgstr "Details"
 
-#: src/utils.rs:148
+#: src/utils.rs:153
+msgid "Show in Folder"
+msgstr "Im Ordner anzeigen"
+
+#: src/utils.rs:205
 msgid "_Copy"
 msgstr "_Kopieren"
 
-#: src/utils.rs:148
+#: src/utils.rs:205
 msgid "_Close"
 msgstr "_Schließen"
 
