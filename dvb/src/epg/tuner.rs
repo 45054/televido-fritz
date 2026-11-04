@@ -5,11 +5,15 @@
 //! Shares the tuner of the FRITZ!Box between playback and reading the
 //! programme guide.
 //!
-//! The FRITZ!Box delivers only one stream per device (see [`crate::mpv`]).
+//! The FRITZ!Box delivers only one stream per device, so the player of the
+//! application has to announce playback (see [`Tuner::begin_playback`]).
 //! Playback always has priority: scanning stops as soon as playback starts
 //! and resumes after it ended.
 
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 
 use tokio::{
     sync::{watch, Mutex, MutexGuard},
@@ -19,9 +23,14 @@ use tokio::{
 /// Time that playback waits for a running scan to end its session.
 const SCAN_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Coordinates the users of the tuner of the FRITZ!Box.
 #[derive(Debug)]
 pub struct Tuner {
     playing: watch::Sender<bool>,
+    /// Counts the calls of `begin_playback`, so that the end of a playback
+    /// that was already replaced by another one doesn't end the new one.
+    /// Only changed while the lock of `playing` is held.
+    generation: AtomicU64,
     /// Held while a scan has a session with the FRITZ!Box.
     session: Mutex<()>,
 }
@@ -30,6 +39,7 @@ impl Default for Tuner {
     fn default() -> Self {
         Self {
             playing: watch::Sender::new(false),
+            generation: AtomicU64::new(0),
             session: Mutex::new(()),
         }
     }
@@ -42,19 +52,47 @@ impl Tuner {
     /// the playback has ended. Starting another channel while a channel is
     /// playing doesn't need an `end_playback` in between.
     pub async fn begin_playback(&self) {
-        self.playing.send_replace(true);
+        self.begin_playback_generation().await;
+    }
+
+    /// Like [`Tuner::begin_playback`], and returns the generation for
+    /// [`Tuner::end_playback_of`].
+    pub(crate) async fn begin_playback_generation(&self) -> u64 {
+        let mut generation = 0;
+        self.playing.send_modify(|playing| {
+            generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+            *playing = true;
+        });
         if timeout(SCAN_STOP_TIMEOUT, self.session.lock())
             .await
             .is_err()
         {
             tracing::warn!("the programme guide scan didn't stop in time");
         }
+        generation
     }
 
+    /// Announces that playback has ended, which lets the programme guide
+    /// use the tuner again.
     pub fn end_playback(&self) {
         self.playing.send_replace(false);
     }
 
+    /// Ends the playback started by the [`Tuner::begin_playback_generation`]
+    /// that returned `generation`, unless another playback started since.
+    pub(crate) fn end_playback_of(&self, generation: u64) {
+        self.playing.send_if_modified(|playing| {
+            let current = self.generation.load(Ordering::SeqCst) == generation;
+            let changed = current && *playing;
+            if current {
+                *playing = false;
+            }
+            changed
+        });
+    }
+
+    /// Returns whether a channel is playing (or recording), which keeps
+    /// the programme guide from using the tuner.
     pub fn is_playing(&self) -> bool {
         *self.playing.borrow()
     }
@@ -116,6 +154,18 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), tuner.playback_ended())
             .await
             .unwrap();
+        assert!(!tuner.is_playing());
+    }
+
+    #[tokio::test]
+    async fn the_end_of_a_replaced_playback_is_ignored() {
+        let tuner = Tuner::default();
+        let first = tuner.begin_playback_generation().await;
+        let second = tuner.begin_playback_generation().await;
+
+        tuner.end_playback_of(first);
+        assert!(tuner.is_playing(), "the second playback goes on");
+        tuner.end_playback_of(second);
         assert!(!tuner.is_playing());
     }
 }

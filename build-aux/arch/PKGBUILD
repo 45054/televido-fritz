@@ -102,7 +102,7 @@ build() {
 check() {
     _cargo_env
     meson test -C build --print-errorlogs
-    cargo test --frozen --release --manifest-path "${_pkgname}/Cargo.toml"
+    cargo test --frozen --release --workspace --manifest-path "${_pkgname}/Cargo.toml"
 }
 
 package() {

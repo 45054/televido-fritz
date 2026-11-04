@@ -5,7 +5,7 @@
 
 use std::cell::{Cell, RefCell};
 
-use adw::{glib, gtk, prelude::*, subclass::prelude::*};
+use adw::{gio, glib, gtk, prelude::*, subclass::prelude::*};
 
 use gettextrs::gettext;
 
@@ -50,12 +50,20 @@ mod imp {
         fritztv_show_radio: Cell<bool>,
         #[property(get, set)]
         fritztv_epg: Cell<bool>,
+        #[property(get, set)]
+        fritztv_relay: Cell<bool>,
         #[property(get)]
         mpv_missing: Cell<bool>,
         #[property(get)]
         mpv_arguments_summary: RefCell<String>,
         #[property(get)]
         mpv_arguments_fritzbox_summary: RefCell<String>,
+        /// The folder that recordings are written to, for display.
+        #[property(get)]
+        recordings_directory_path: RefCell<String>,
+        /// Whether the user chose the recordings folder.
+        #[property(get)]
+        recordings_directory_custom: Cell<bool>,
 
         #[property(get)]
         settings: TvSettings,
@@ -101,6 +109,30 @@ mod imp {
         fn edit_mpv_arguments_fritzbox(&self, #[rest] _: &[glib::Value]) {
             self.obj()
                 .push_subpage(&TvMpvArgumentsPage::new(mpv_arguments::FRITZBOX_KEY))
+        }
+        #[template_callback]
+        async fn select_recordings_directory(&self, #[rest] _: &[glib::Value]) {
+            let dialog = gtk::FileDialog::builder()
+                .title(gettext("Recordings Folder"))
+                .modal(true)
+                .initial_folder(&gio::File::for_path(fritzbox::recordings_directory()))
+                .build();
+            let window = self.obj().root().and_downcast::<gtk::Window>();
+
+            match dialog.select_folder_future(window.as_ref()).await {
+                Ok(folder) => match folder.path() {
+                    Some(path) => self
+                        .settings
+                        .set_recordings_directory(&path.to_string_lossy()),
+                    None => tracing::warn!("the folder {} has no local path", folder.uri()),
+                },
+                Err(e) if e.matches(gtk::DialogError::Dismissed) => (),
+                Err(e) => tracing::warn!("failed to select the recordings folder: {e}"),
+            }
+        }
+        #[template_callback]
+        fn reset_recordings_directory(&self, #[rest] _: &[glib::Value]) {
+            self.settings.reset_recordings_directory();
         }
         #[template_callback]
         fn apply_fritzbox_address(&self, #[rest] _: &[glib::Value]) {
@@ -170,6 +202,20 @@ mod imp {
         }
     }
 
+    impl TvPreferencesDialog {
+        fn update_recordings_directory(&self) {
+            self.recordings_directory_path.replace(
+                fritzbox::recordings_directory()
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            self.recordings_directory_custom
+                .set(!self.settings.recordings_directory().trim().is_empty());
+            self.obj().notify_recordings_directory_path();
+            self.obj().notify_recordings_directory_custom();
+        }
+    }
+
     fn arguments_summary(arguments: Vec<String>) -> String {
         if arguments.is_empty() {
             gettext("No arguments")
@@ -215,6 +261,9 @@ mod imp {
             self.settings
                 .bind_fritztv_epg(&*self.obj(), "fritztv-epg")
                 .build();
+            self.settings
+                .bind_fritztv_relay(&*self.obj(), "fritztv-relay")
+                .build();
             self.mpv_missing.set(!mpv::is_installed());
             self.fritzbox_address_row
                 .set_text(&self.settings.fritzbox_address());
@@ -223,6 +272,7 @@ mod imp {
             self.update_mpv_arguments_fritzbox_summary();
             self.update_video_player_display_name();
             self.update_video_downloader_display_name();
+            self.update_recordings_directory();
 
             let settings = &self.settings;
             self.settings_handlers.replace(vec![
@@ -255,6 +305,11 @@ mod imp {
                     #[weak(rename_to = slf)]
                     self,
                     move |_| slf.update_video_downloader_display_name()
+                )),
+                settings.connect_recordings_directory_changed(glib::clone!(
+                    #[weak(rename_to = slf)]
+                    self,
+                    move |_| slf.update_recordings_directory()
                 )),
             ]);
         }

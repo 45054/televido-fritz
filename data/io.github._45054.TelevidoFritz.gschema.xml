@@ -90,17 +90,25 @@
 				"--msg-level=ffmpeg=fatal"
 			]</default>
 		</key>
+		<key name="fritztv-relay" type="b">
+			<default>true</default>
+			<summary>Whether Televido receives the stream itself and pipes it to mpv</summary>
+		</key>
+		<key name="recordings-directory" type="s">
+			<default>""</default>
+			<summary>The folder that recordings are written to</summary>
+			<description>Empty for the folder “Televido” in the Videos folder.</description>
+		</key>
 		<key name="mpv-arguments-fritzbox" type="as">
 			<default>[
-				"--rtsp-transport=udp",
 				"--deinterlace=auto",
 				"--cache=yes",
 				"--demuxer-max-bytes=64MiB",
+				"--demuxer-max-back-bytes=256MiB",
 				"--cache-pause-initial=yes",
 				"--cache-pause-wait=1.5",
 				"--demuxer-lavf-analyzeduration=3",
-				"--demuxer-lavf-probesize=5000000",
-				"--demuxer-lavf-o=buffer_size=4194304"
+				"--demuxer-lavf-probesize=5000000"
 			]</default>
 		</key>
 	</schema>

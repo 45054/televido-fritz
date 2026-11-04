@@ -1,10 +1,13 @@
 // SPDX-FileCopyrightText: David Cabot <d-k-bo@mailbox.org>
+// SPDX-FileCopyrightText: 2026 Televido contributors
+// SPDX-FileContributor: Claude (Anthropic)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{
     cell::{OnceCell, RefCell},
     fmt::Debug,
     future::Future,
+    path::Path,
     pin::Pin,
     rc::Rc,
     sync::OnceLock,
@@ -19,18 +22,19 @@ use crate::{application::TvApplication, window::TvWindow};
 
 pub use self::async_resource::AsyncResource;
 
+/// The tokio runtime of the application, see [`tokio`].
+pub fn runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+    RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().unwrap())
+}
+
 pub async fn tokio<Fut, T>(fut: Fut) -> T
 where
     Fut: Future<Output = T> + Send + 'static,
     T: Send + 'static,
 {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-    RUNTIME
-        .get_or_init(|| tokio::runtime::Runtime::new().unwrap())
-        .spawn(fut)
-        .await
-        .expect("tokio thread panicked")
+    runtime().spawn(fut).await.expect("tokio thread panicked")
 }
 
 pub fn spawn<Fut>(fut: Fut)
@@ -119,6 +123,59 @@ pub fn show_error(e: eyre::Report) {
         ));
     }
     window.add_toast(toast);
+}
+
+/// Shows `title` in a toast.
+pub fn show_toast(title: &str) {
+    tracing::info!("{title}");
+
+    if let Some(window) = TvApplication::get()
+        .active_window()
+        .and_downcast::<TvWindow>()
+    {
+        window.add_toast(new_toast(title));
+    }
+}
+
+/// Shows `title` in a toast with a button that opens the folder of the file
+/// at `path`.
+pub fn show_file_toast(title: &str, path: &Path) {
+    tracing::info!("{title}: {}", path.display());
+
+    let Some(window) = TvApplication::get()
+        .active_window()
+        .and_downcast::<TvWindow>()
+    else {
+        return;
+    };
+
+    let toast = new_toast(title);
+    toast.set_button_label(Some(&gettext("Show in Folder")));
+    let file = gio::File::for_path(path);
+    toast.connect_button_clicked(glib::clone!(
+        #[weak]
+        window,
+        move |_| {
+            gtk::FileLauncher::new(Some(&file)).open_containing_folder(
+                Some(&window),
+                None::<&gio::Cancellable>,
+                |result| {
+                    if let Err(e) = result {
+                        tracing::warn!("failed to open the folder: {e}");
+                    }
+                },
+            );
+        }
+    ));
+    window.add_toast(toast);
+}
+
+fn new_toast(title: &str) -> adw::Toast {
+    adw::Toast::builder()
+        .title(title)
+        // the title may contain characters like `&` that aren't valid markup
+        .use_markup(false)
+        .build()
 }
 
 fn show_error_details(window: &TvWindow, message: &str, details: &str) {

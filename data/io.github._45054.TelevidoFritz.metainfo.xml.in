@@ -15,8 +15,8 @@
 			program only facilitates finding and accessing the shows.
 		</p>
 		<p>
-			Televido can also play the DVB-C channels of a FRITZ!Box Cable in the home network and
-			shows their program guide, which it reads from the cable signal.
+			Televido can also play and record the DVB-C channels of a FRITZ!Box Cable in the home
+			network and shows their program guide, which it reads from the cable signal.
 		</p>
 		<p>
 			Televido plays videos with mpv. Additionally, Televido supports external programs that
@@ -66,6 +66,17 @@
 		<control>touch</control>
 	</supports>
 	<releases>
+		<release version="0.6.0-beta.3" type="development" date="2026-11-04">
+			<description>
+				<ul>
+					<li>Receive the FritzTV stream in Televido and pass it to mpv, which can be turned off in the preferences</li>
+					<li>Record FritzTV channels to transport stream files, also in the background without mpv</li>
+					<li>Choose the folder for recordings in the preferences</li>
+					<li>Keep the programme guide of the playing FritzTV channel current while watching</li>
+					<li>Pause FritzTV channels and seek back within mpv's cache</li>
+				</ul>
+			</description>
+		</release>
 		<release version="0.6.0-beta.1" type="development" date="2026-10-11">
 			<description>
 				<p>First release of the fork with FRITZ!Box Cable support.</p>

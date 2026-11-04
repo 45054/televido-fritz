@@ -18,13 +18,12 @@ use tokio::{
 };
 
 use super::{
-    mux::{self, Mux},
-    rtsp::StatusError,
+    mux::Mux,
     scan::{self, ScanError},
     store::EpgStore,
     Inner,
 };
-use crate::fritzbox::FritzChannel;
+use crate::rtsp::StatusError;
 
 /// Timing of the sweep.
 #[derive(Clone, Copy, Debug)]
@@ -35,6 +34,10 @@ pub struct Timing {
     pub poll: Duration,
     /// Pause before a multiplex that failed is tried again.
     pub retry: Duration,
+    /// How often a [`super::LiveFeed`] adds new tables to the guide.
+    pub feed_update: Duration,
+    /// How often a [`super::LiveFeed`] saves the cache at most.
+    pub feed_save: Duration,
 }
 
 impl Default for Timing {
@@ -43,6 +46,8 @@ impl Default for Timing {
             settle: Duration::from_secs(3),
             poll: Duration::from_secs(60),
             retry: Duration::from_secs(5 * 60),
+            feed_update: Duration::from_secs(5),
+            feed_save: Duration::from_secs(60),
         }
     }
 }
@@ -81,21 +86,21 @@ fn next_mux<'a>(
         .map(|(_, mux)| mux)
 }
 
-/// Scans the multiplexes of `channels` until `cancel` is dropped.
+/// Scans `muxes`, the channels grouped by `mux::group`, until `cancel` is
+/// dropped.
 ///
 /// After every scan, the next multiplex is chosen anew: channels without
 /// programme information come first, and the events of other multiplexes
 /// ("EIT other") that a scan provided are taken into account.
 pub async fn run(
     inner: Arc<Inner>,
-    channels: Vec<FritzChannel>,
+    muxes: Arc<[Mux]>,
     mut cancel: watch::Receiver<()>,
     notify: UnboundedSender<()>,
 ) {
     inner.load_cache().await;
     let _ = notify.send(());
 
-    let muxes = mux::group(&channels);
     let timing = inner.timing;
     // multiplexes that failed, and when to try them again
     let mut retry_at: HashMap<String, Instant> = HashMap::new();
@@ -212,12 +217,12 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::{
-        super::{
-            scan::Scan,
-            si::{Eit, EitEvent, Pat, ServiceKey},
-            store::Urgency,
-        },
+        super::{mux, scan::Scan, store::Urgency},
         *,
+    };
+    use crate::{
+        si::{Eit, EitEvent, Pat, ServiceKey},
+        FritzChannel,
     };
 
     const NOW: i64 = 1_700_000_000;

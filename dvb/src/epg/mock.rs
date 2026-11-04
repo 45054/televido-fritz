@@ -9,9 +9,9 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tokio::{
@@ -19,7 +19,7 @@ use tokio::{
     net::{TcpListener, UdpSocket},
 };
 
-use super::{
+use crate::{
     si::{
         tests::{
             eit_section, event, extended_event_descriptor, pat_section, sdt_section,
@@ -137,6 +137,30 @@ impl MockMux {
     }
 }
 
+/// Behaviour of the fake FRITZ!Box beyond the multiplexes.
+#[derive(Clone, Debug)]
+pub struct MockOptions {
+    /// The `timeout` of the `Session` header. The stream stops if the
+    /// client sends no request for this long.
+    pub session_timeout: Duration,
+    /// Transport stream packets of the first requested audio/video PID that
+    /// are sent with every repetition of the service information (every
+    /// 30 ms).
+    pub payload_packets: usize,
+    /// The stream stops after this time, although the session goes on.
+    pub stop_after: Option<Duration>,
+}
+
+impl Default for MockOptions {
+    fn default() -> Self {
+        Self {
+            session_timeout: Duration::from_secs(30),
+            payload_packets: 0,
+            stop_after: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct MockBox {
     pub port: u16,
@@ -144,25 +168,53 @@ pub struct MockBox {
     pub setups: Arc<AtomicUsize>,
     /// Number of `TEARDOWN` requests.
     pub teardowns: Arc<AtomicUsize>,
+    /// Number of `OPTIONS` requests within a session, i.e. keepalives.
+    pub keepalives: Arc<AtomicUsize>,
+    /// Number of streams that stopped because the session timed out.
+    pub expired: Arc<AtomicUsize>,
     /// The `pids` requested by the clients.
-    pub requested_pids: Arc<std::sync::Mutex<Vec<String>>>,
+    pub requested_pids: Arc<Mutex<Vec<String>>>,
+}
+
+#[derive(Clone, Debug)]
+struct State {
+    muxes: Arc<HashMap<u32, MockMux>>,
+    options: MockOptions,
+    setups: Arc<AtomicUsize>,
+    teardowns: Arc<AtomicUsize>,
+    keepalives: Arc<AtomicUsize>,
+    expired: Arc<AtomicUsize>,
+    requested_pids: Arc<Mutex<Vec<String>>>,
 }
 
 impl MockBox {
     /// Starts a server for `muxes`, by frequency.
     pub async fn start(muxes: HashMap<u32, MockMux>) -> Self {
+        Self::start_with(muxes, MockOptions::default()).await
+    }
+
+    /// Starts a server for `muxes` that behaves as `options` say.
+    pub async fn start_with(muxes: HashMap<u32, MockMux>, options: MockOptions) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        let setups = Arc::new(AtomicUsize::new(0));
-        let teardowns = Arc::new(AtomicUsize::new(0));
-        let requested_pids = Arc::new(std::sync::Mutex::new(Vec::new()));
 
-        let state = (
-            Arc::new(muxes),
-            setups.clone(),
-            teardowns.clone(),
-            requested_pids.clone(),
-        );
+        let state = State {
+            muxes: Arc::new(muxes),
+            options,
+            setups: Arc::default(),
+            teardowns: Arc::default(),
+            keepalives: Arc::default(),
+            expired: Arc::default(),
+            requested_pids: Arc::default(),
+        };
+        let mock = Self {
+            port,
+            setups: state.setups.clone(),
+            teardowns: state.teardowns.clone(),
+            keepalives: state.keepalives.clone(),
+            expired: state.expired.clone(),
+            requested_pids: state.requested_pids.clone(),
+        };
         tokio::spawn(async move {
             loop {
                 let Ok((socket, peer)) = listener.accept().await else {
@@ -172,12 +224,7 @@ impl MockBox {
             }
         });
 
-        Self {
-            port,
-            setups,
-            teardowns,
-            requested_pids,
-        }
+        mock
     }
 
     pub fn url(&self, frequency: u32, pids: &str) -> String {
@@ -188,24 +235,24 @@ impl MockBox {
     }
 }
 
-type State = (
-    Arc<HashMap<u32, MockMux>>,
-    Arc<AtomicUsize>,
-    Arc<AtomicUsize>,
-    Arc<std::sync::Mutex<Vec<String>>>,
-);
-
-async fn serve(
-    socket: tokio::net::TcpStream,
-    peer: std::net::IpAddr,
-    port: u16,
-    (muxes, setups, teardowns, requested_pids): State,
-) {
+async fn serve(socket: tokio::net::TcpStream, peer: std::net::IpAddr, port: u16, state: State) {
+    let State {
+        muxes,
+        options,
+        setups,
+        teardowns,
+        keepalives,
+        expired,
+        requested_pids,
+    } = state;
     let (read, mut write) = socket.into_split();
     let mut reader = BufReader::new(read);
     let mut mux: Option<MockMux> = None;
+    let mut payload_pid = None;
     let mut client_port = 0;
     let mut sender: Option<tokio::task::JoinHandle<()>> = None;
+    // the last request of the session
+    let last_request = Arc::new(Mutex::new(Instant::now()));
 
     loop {
         // request line and headers
@@ -228,17 +275,30 @@ async fn serve(
         let method = first_line.split(' ').next().unwrap_or_default().to_owned();
         let url = first_line.split(' ').nth(1).unwrap_or_default().to_owned();
         let cseq = header(&request, "CSeq").unwrap_or_default();
+        let in_session = header(&request, "Session").is_some();
+        if in_session {
+            *last_request.lock().unwrap() = Instant::now();
+        }
 
         let (status, headers, body): (&str, String, String) = match method.as_str() {
-            "OPTIONS" => (
-                "200 OK",
-                "Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN\r\n".into(),
-                String::new(),
-            ),
+            "OPTIONS" => {
+                if in_session {
+                    keepalives.fetch_add(1, Ordering::SeqCst);
+                }
+                (
+                    "200 OK",
+                    "Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN\r\n".into(),
+                    String::new(),
+                )
+            }
             "DESCRIBE" => {
                 let frequency = query(&url, "freq").and_then(|f| f.parse().ok());
                 let pids = query(&url, "pids").unwrap_or_default();
                 requested_pids.lock().unwrap().push(pids.clone());
+                payload_pid = pids
+                    .split(',')
+                    .filter_map(|pid| pid.parse::<u16>().ok())
+                    .find(|pid| *pid > 20);
 
                 match frequency.and_then(|f| muxes.get(&f)) {
                     Some(found) => {
@@ -282,10 +342,12 @@ async fn serve(
                     .and_then(|ports| ports.split(['-', ';']).next())
                     .and_then(|port| port.parse().ok())
                     .unwrap_or_default();
+                *last_request.lock().unwrap() = Instant::now();
                 (
                     "200 OK",
                     format!(
-                        "Session: 4D2F1A;timeout=30\r\nTransport: RTP/AVP;unicast;client_port={client_port}-{};server_port=6970-6971\r\ncom.ses.streamID: 1\r\n",
+                        "Session: 4D2F1A;timeout={}\r\nTransport: RTP/AVP;unicast;client_port={client_port}-{};server_port=6970-6971\r\ncom.ses.streamID: 1\r\n",
+                        options.session_timeout.as_secs(),
                         client_port + 1
                     ),
                     String::new(),
@@ -294,7 +356,14 @@ async fn serve(
             "PLAY" => {
                 // a multiplex without services is silent
                 if let Some(mux) = mux.clone().filter(|mux| !mux.services.is_empty()) {
-                    sender = Some(tokio::spawn(send_stream(mux, peer, client_port)));
+                    sender = Some(tokio::spawn(send_stream(
+                        mux,
+                        payload_pid,
+                        options.clone(),
+                        (peer, client_port),
+                        last_request.clone(),
+                        expired.clone(),
+                    )));
                 }
                 ("200 OK", "Session: 4D2F1A\r\n".into(), String::new())
             }
@@ -330,29 +399,77 @@ fn query(url: &str, name: &str) -> Option<String> {
     })
 }
 
-/// Repeats the service information as RTP packets.
-async fn send_stream(mux: MockMux, peer: std::net::IpAddr, client_port: u16) {
+/// Builds `count` transport stream packets of `pid` with a payload that
+/// counts up from `first`.
+pub fn payload_packets(pid: u16, count: usize, counter: &mut u8, first: &mut u8) -> Vec<u8> {
+    let mut data = Vec::with_capacity(count * PACKET_SIZE);
+    for _ in 0..count {
+        data.extend_from_slice(&[0x47, (pid >> 8) as u8 & 0x1F, pid as u8, 0x10 | *counter]);
+        data.extend((0..PACKET_SIZE - 4).map(|i| first.wrapping_add(i as u8)));
+        *counter = (*counter + 1) & 0x0F;
+        *first = first.wrapping_add(1);
+    }
+    data
+}
+
+/// Repeats the service information as RTP packets, together with the
+/// payload packets, until the stream stops or the session times out.
+async fn send_stream(
+    mux: MockMux,
+    payload_pid: Option<u16>,
+    options: MockOptions,
+    client: (std::net::IpAddr, u16),
+    last_request: Arc<Mutex<Instant>>,
+    expired: Arc<AtomicUsize>,
+) {
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let sections = mux.sections();
     let mut counters: HashMap<u16, u8> = HashMap::new();
     let mut sequence = 0u16;
+    let mut payload_byte = 0u8;
+    let start = Instant::now();
 
     loop {
+        if last_request.lock().unwrap().elapsed() > options.session_timeout {
+            expired.fetch_add(1, Ordering::SeqCst);
+            return;
+        }
+        if options
+            .stop_after
+            .is_some_and(|stop_after| start.elapsed() >= stop_after)
+        {
+            // silent until the session ends
+            std::future::pending::<()>().await;
+        }
+
+        let mut bursts: Vec<Vec<u8>> = Vec::new();
+        if let Some(pid) = payload_pid.filter(|_| options.payload_packets > 0) {
+            let counter = counters.entry(pid).or_default();
+            bursts.push(payload_packets(
+                pid,
+                options.payload_packets,
+                counter,
+                &mut payload_byte,
+            ));
+        }
         for (pid, sections) in &sections {
             // one section per RTP packet burst, like a real multiplexer
             for section in sections {
                 let counter = counters.entry(*pid).or_default();
                 let packets = packetize(*pid, std::slice::from_ref(section), *counter);
                 *counter = (*counter + (packets.len() / PACKET_SIZE) as u8) & 0x0F;
+                bursts.push(packets);
+            }
+        }
 
-                for chunk in packets.chunks(7 * PACKET_SIZE) {
-                    let mut rtp = vec![0x80, 33];
-                    rtp.extend_from_slice(&sequence.to_be_bytes());
-                    rtp.extend_from_slice(&[0; 8]);
-                    rtp.extend_from_slice(chunk);
-                    sequence = sequence.wrapping_add(1);
-                    let _ = socket.send_to(&rtp, (peer, client_port)).await;
-                }
+        for packets in bursts {
+            for chunk in packets.chunks(7 * PACKET_SIZE) {
+                let mut rtp = vec![0x80, 33];
+                rtp.extend_from_slice(&sequence.to_be_bytes());
+                rtp.extend_from_slice(&[0; 8]);
+                rtp.extend_from_slice(chunk);
+                sequence = sequence.wrapping_add(1);
+                let _ = socket.send_to(&rtp, client).await;
             }
         }
         tokio::time::sleep(Duration::from_millis(30)).await;

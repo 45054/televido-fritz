@@ -6,18 +6,31 @@
 //! the FRITZ!Box. It follows the sequence used by FFmpeg and mpv: `OPTIONS`,
 //! `DESCRIBE`, `SETUP` and `PLAY`, and hands out the transport stream
 //! packets of the RTP payload. `TEARDOWN` frees the tuner of the FRITZ!Box.
+//!
+//! The server ends a session that sees no request for the `timeout` of its
+//! `Session` header (60 seconds by default, SAT>IP 3.5.11). Short scans
+//! don't care, but a long-running session (see [`crate::relay`]) sends
+//! [`Control::keepalive`] regularly. As the keepalive waits for the answer
+//! of the server, [`Stream::parts`] splits the session into the control
+//! connection and the receiver, so that the keepalive doesn't hold up
+//! receiving the stream.
 
-use std::{fmt, net::SocketAddr, time::Duration};
+use std::{
+    fmt,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    time::Duration,
+};
 
 use eyre::WrapErr;
-use reqwest::Url;
+use socket2::{Domain, Protocol, SockRef, Socket, Type};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpStream, UdpSocket},
     time::timeout,
 };
+use url::Url;
 
-use super::ts::PACKET_SIZE;
+use crate::ts::PACKET_SIZE;
 
 const DEFAULT_PORT: u16 = 554;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -27,6 +40,16 @@ const TEARDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_HEADER_LINES: usize = 64;
 const MAX_BODY_SIZE: usize = 64 * 1024;
 const USER_AGENT: &str = "Televido";
+/// The session timeout if the server doesn't name one (RFC 2326, 12.37).
+const DEFAULT_SESSION_TIMEOUT: Duration = Duration::from_secs(60);
+/// The receive buffer of the RTP socket, like the `buffer_size` that mpv
+/// was given when it opened the stream itself: the kernel's default (about
+/// 200 KiB) holds only about 100 ms of an HD channel, and the stream
+/// arrives in bursts. Linux limits it to `net.core.rmem_max`.
+const RECEIVE_BUFFER_SIZE: usize = 4 * 1024 * 1024;
+/// Lower bound of the keepalive interval, against servers that announce a
+/// tiny timeout.
+const MIN_KEEPALIVE_INTERVAL: Duration = Duration::from_millis(500);
 
 /// The server answered a request with an error status.
 #[derive(Debug)]
@@ -64,10 +87,24 @@ impl Response {
 /// An established RTSP session that receives a transport stream over UDP.
 #[derive(Debug)]
 pub struct Stream {
+    control: Control,
+    receiver: Receiver,
+}
+
+/// The RTSP connection of a [`Stream`], which controls the session.
+#[derive(Debug)]
+pub struct Control {
     reader: BufReader<TcpStream>,
     cseq: u32,
     session: Option<String>,
+    /// From the `Session` header of the `SETUP` response.
+    session_timeout: Duration,
     play_url: String,
+}
+
+/// Receives the RTP packets of a [`Stream`].
+#[derive(Debug)]
+pub struct Receiver {
     rtp: UdpSocket,
     /// Keeps the RTCP port reserved.
     _rtcp: UdpSocket,
@@ -96,16 +133,21 @@ impl Stream {
         let (rtp, rtcp, client_port) = bind_udp_pair(peer).await?;
 
         let mut stream = Self {
-            reader: BufReader::new(tcp),
-            cseq: 0,
-            session: None,
-            play_url: url.to_string(),
-            rtp,
-            _rtcp: rtcp,
-            buffer: vec![0; 4096],
+            control: Control {
+                reader: BufReader::new(tcp),
+                cseq: 0,
+                session: None,
+                session_timeout: DEFAULT_SESSION_TIMEOUT,
+                play_url: url.to_string(),
+            },
+            receiver: Receiver {
+                rtp,
+                _rtcp: rtcp,
+                buffer: vec![0; 4096],
+            },
         };
 
-        if let Err(e) = stream.start(&url, client_port).await {
+        if let Err(e) = stream.control.start(&url, client_port).await {
             // free the tuner if the session was already set up
             stream.teardown().await;
             return Err(e);
@@ -113,6 +155,25 @@ impl Stream {
         Ok(stream)
     }
 
+    /// Returns the next chunk of transport stream data, a multiple of 188
+    /// bytes.
+    pub async fn recv(&mut self) -> eyre::Result<&[u8]> {
+        self.receiver.recv().await
+    }
+
+    /// Ends the session, which frees the tuner. Errors are ignored.
+    pub async fn teardown(&mut self) {
+        self.control.teardown().await;
+    }
+
+    /// Splits the stream into its connection and its receiver, which can be
+    /// used at the same time, e.g. to send a keepalive while receiving.
+    pub fn parts(&mut self) -> (&mut Control, &mut Receiver) {
+        (&mut self.control, &mut self.receiver)
+    }
+}
+
+impl Control {
     async fn start(&mut self, url: &Url, client_port: u16) -> eyre::Result<()> {
         let url_string = url.to_string();
 
@@ -143,12 +204,15 @@ impl Stream {
             .await?;
         ensure_ok("SETUP", &setup)?;
 
-        self.session = setup
-            .header("Session")
-            .map(|session| session_id(session).to_owned());
+        let session = setup.header("Session");
+        self.session = session.map(|session| session_id(session).to_owned());
+        self.session_timeout = session
+            .and_then(session_timeout)
+            .unwrap_or(DEFAULT_SESSION_TIMEOUT);
         tracing::debug!(
-            "RTSP session {:?}, transport {:?}",
+            "RTSP session {:?} (timeout {:?}), transport {:?}",
             self.session,
+            self.session_timeout,
             setup.header("Transport")
         );
 
@@ -170,20 +234,30 @@ impl Stream {
         self.request("PLAY", url, &[("Range", "npt=0.000-")]).await
     }
 
-    /// Returns the next chunk of transport stream data, a multiple of 188
-    /// bytes.
-    pub async fn recv(&mut self) -> eyre::Result<&[u8]> {
-        let (start, end) = loop {
-            let (length, _) = self.rtp.recv_from(&mut self.buffer).await?;
-            if let Some(range) = rtp_payload(&self.buffer[..length]) {
-                break range;
-            }
-        };
-        Ok(&self.buffer[start..end])
+    /// The time after which the server ends the session without a request.
+    pub fn session_timeout(&self) -> Duration {
+        self.session_timeout
+    }
+
+    /// How often [`Control::keepalive`] should be sent: half the session
+    /// timeout, which leaves time for a slow answer.
+    pub fn keepalive_interval(&self) -> Duration {
+        (self.session_timeout / 2).max(MIN_KEEPALIVE_INTERVAL)
+    }
+
+    /// Tells the server that the session is still in use.
+    ///
+    /// SAT>IP (3.5.11) names `OPTIONS` with the `Session` header as the
+    /// keepalive request; FFmpeg tries `GET_PARAMETER` first, which not every
+    /// SAT>IP server implements.
+    pub async fn keepalive(&mut self) -> eyre::Result<()> {
+        let url = self.play_url.clone();
+        let response = self.request("OPTIONS", &url, &[]).await?;
+        ensure_ok("OPTIONS", &response)
     }
 
     /// Ends the session, which frees the tuner. Errors are ignored.
-    pub async fn teardown(&mut self) {
+    async fn teardown(&mut self) {
         let Some(session) = self.session.take() else {
             return;
         };
@@ -282,6 +356,22 @@ impl Stream {
     }
 }
 
+impl Receiver {
+    /// Returns the next chunk of transport stream data, a multiple of 188
+    /// bytes.
+    ///
+    /// Cancel safe: a packet is either returned or left in the socket.
+    pub async fn recv(&mut self) -> eyre::Result<&[u8]> {
+        let (start, end) = loop {
+            let (length, _) = self.rtp.recv_from(&mut self.buffer).await?;
+            if let Some(range) = rtp_payload(&self.buffer[..length]) {
+                break range;
+            }
+        };
+        Ok(&self.buffer[start..end])
+    }
+}
+
 fn ensure_ok(method: &'static str, response: &Response) -> eyre::Result<()> {
     if (200..300).contains(&response.code) {
         Ok(())
@@ -297,19 +387,47 @@ fn ensure_ok(method: &'static str, response: &Response) -> eyre::Result<()> {
 
 /// Binds an even UDP port for RTP and the following port for RTCP.
 async fn bind_udp_pair(peer: SocketAddr) -> eyre::Result<(UdpSocket, UdpSocket, u16)> {
-    let any = if peer.is_ipv4() { "0.0.0.0" } else { "::" };
+    let any: IpAddr = if peer.is_ipv4() {
+        Ipv4Addr::UNSPECIFIED.into()
+    } else {
+        Ipv6Addr::UNSPECIFIED.into()
+    };
 
     for _ in 0..32 {
-        let rtp = UdpSocket::bind((any, 0)).await?;
+        let rtp = bind_rtp(SocketAddr::new(any, 0))?;
         let port = rtp.local_addr()?.port();
         if port % 2 != 0 || port == u16::MAX {
             continue;
         }
         if let Ok(rtcp) = UdpSocket::bind((any, port + 1)).await {
+            // Linux reports twice the size that applies to the data
+            match SockRef::from(&rtp).recv_buffer_size() {
+                Ok(size) => tracing::debug!("UDP receive buffer of the RTP socket: {size} bytes"),
+                Err(e) => tracing::debug!("failed to read the UDP receive buffer size: {e}"),
+            }
             return Ok((rtp, rtcp, port));
         }
     }
     eyre::bail!("no free UDP port pair for RTP/RTCP")
+}
+
+/// Binds the RTP socket to `address`, with a receive buffer of
+/// [`RECEIVE_BUFFER_SIZE`].
+fn bind_rtp(address: SocketAddr) -> eyre::Result<UdpSocket> {
+    let socket = Socket::new(
+        Domain::for_address(address),
+        Type::DGRAM,
+        Some(Protocol::UDP),
+    )?;
+    // The kernel silently limits the size to `net.core.rmem_max`, which is
+    // no reason to fail: the default may suffice for the channel, and the
+    // README explains how to raise the limit.
+    if let Err(e) = socket.set_recv_buffer_size(RECEIVE_BUFFER_SIZE) {
+        tracing::debug!("failed to set the UDP receive buffer size: {e}");
+    }
+    socket.set_nonblocking(true)?;
+    socket.bind(&address.into())?;
+    Ok(UdpSocket::from_std(socket.into())?)
 }
 
 fn parse_response_head(head: &str) -> eyre::Result<Response> {
@@ -339,6 +457,19 @@ fn parse_response_head(head: &str) -> eyre::Result<Response> {
 /// `abc;timeout=60`.
 fn session_id(header: &str) -> &str {
     header.split(';').next().unwrap_or_default().trim()
+}
+
+/// Returns the `timeout` parameter of a `Session` header, e.g. 60 seconds
+/// for `abc;timeout=60`.
+fn session_timeout(header: &str) -> Option<Duration> {
+    header.split(';').skip(1).find_map(|parameter| {
+        let (name, value) = parameter.split_once('=')?;
+        let seconds: u64 = name
+            .trim()
+            .eq_ignore_ascii_case("timeout")
+            .then(|| value.trim().parse().ok())??;
+        (seconds > 0).then(|| Duration::from_secs(seconds))
+    })
 }
 
 /// Returns the `a=control:` attribute of the first media description, or the
@@ -400,6 +531,23 @@ fn rtp_payload(packet: &[u8]) -> Option<(usize, usize)> {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn binds_a_port_pair_with_a_large_receive_buffer() {
+        let peer = SocketAddr::from((Ipv4Addr::LOCALHOST, DEFAULT_PORT));
+        let (rtp, rtcp, port) = bind_udp_pair(peer).await.unwrap();
+        assert_eq!(port % 2, 0);
+        assert_eq!(rtp.local_addr().unwrap().port(), port);
+        assert_eq!(rtcp.local_addr().unwrap().port(), port + 1);
+
+        // as much as the kernel allows (Linux reports twice the size)
+        let limit = std::fs::read_to_string("/proc/sys/net/core/rmem_max")
+            .ok()
+            .and_then(|limit| limit.trim().parse::<usize>().ok())
+            .unwrap_or(RECEIVE_BUFFER_SIZE);
+        let size = SockRef::from(&rtp).recv_buffer_size().unwrap();
+        assert!(size >= RECEIVE_BUFFER_SIZE.min(limit), "{size} bytes");
+    }
+
     #[test]
     fn parses_responses() {
         let response = parse_response_head(
@@ -412,6 +560,17 @@ mod tests {
         assert_eq!(response.header("session"), Some("0A1B2C;timeout=60"));
         assert_eq!(response.header("COM.SES.STREAMID"), Some("4"));
         assert_eq!(session_id(response.header("Session").unwrap()), "0A1B2C");
+        assert_eq!(
+            session_timeout(response.header("Session").unwrap()),
+            Some(Duration::from_secs(60))
+        );
+        assert_eq!(
+            session_timeout("0A1B2C ; Timeout = 30"),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(session_timeout("0A1B2C"), None);
+        assert_eq!(session_timeout("0A1B2C;timeout=0"), None);
+        assert_eq!(session_timeout("0A1B2C;timeout=abc"), None);
 
         let busy = parse_response_head("RTSP/1.0 503 Service Unavailable").unwrap();
         assert_eq!(busy.code, 503);

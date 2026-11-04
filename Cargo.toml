@@ -5,9 +5,12 @@
 
 [package]
 name = "televido"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 edition = "2021"
 publish = false
+
+[workspace]
+members = [".", "dvb"]
 
 [dependencies]
 adw = { package = "libadwaita", version = "0.9.2", features = ["v1_8"] }
@@ -25,6 +28,7 @@ reqwest = { version = "0.13.5", default-features = false, features = ["charset",
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.138"
 smart-default = "0.7.1"
+televido-dvb = { path = "dvb" }
 time = { version = "0.3.37", features = ["parsing", "serde"] }
 tokio = { version = "1.43.0", features = ["fs", "time", "rt-multi-thread", "macros", "sync", "net", "io-util"] }
 tracing = "0.1.41"

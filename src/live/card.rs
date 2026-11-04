@@ -6,9 +6,15 @@
 use std::cell::{Cell, RefCell};
 
 use adw::{glib, gtk, prelude::*, subclass::prelude::*};
+use gettextrs::gettext;
 
 use crate::{
-    application::VideoInfo, channel_icons::load_channel_icon, mpv, utils::show_error, TvApplication,
+    application::VideoInfo,
+    channel_icons::load_channel_icon,
+    fritzbox::{self, TvRecordingState},
+    settings::TvSettings,
+    utils::{format_timestamp_time, show_error},
+    TvApplication,
 };
 
 use super::channels::{ChannelKind, ChannelObject};
@@ -36,12 +42,21 @@ mod imp {
         next: TemplateChild<gtk::Label>,
         #[template_child]
         play_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        record_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        recording_label: TemplateChild<gtk::Label>,
 
         #[property(get, set)]
         expanded: Cell<bool>,
 
         #[property(get, construct_only)]
         pub(super) channel: RefCell<Option<ChannelObject>>,
+
+        /// The handlers on [`TvRecordingState`], which outlives the card.
+        recording_handlers: RefCell<Vec<glib::SignalHandlerId>>,
+        /// The handler on the settings, which outlive the card.
+        relay_handler: RefCell<Option<glib::SignalHandlerId>>,
     }
 
     impl TvLiveCard {
@@ -107,6 +122,73 @@ mod imp {
             self.update_progress();
         }
 
+        /// Shows the record button on FritzTV cards, and whether the
+        /// channel is being recorded.
+        fn watch_recording(&self) {
+            let settings = TvSettings::get();
+            let handler = settings.connect_fritztv_relay_changed({
+                let card = self.obj().downgrade();
+                move |_| {
+                    if let Some(card) = card.upgrade() {
+                        card.imp().update_recording();
+                    }
+                }
+            });
+            if let Some(handler) = self.relay_handler.replace(Some(handler)) {
+                settings.disconnect(handler);
+            }
+
+            let state = TvRecordingState::get();
+            let update = {
+                let card = self.obj().downgrade();
+                move |_: &TvRecordingState| {
+                    if let Some(card) = card.upgrade() {
+                        card.imp().update_recording();
+                    }
+                }
+            };
+            let handlers = vec![
+                state.connect_url_notify(update.clone()),
+                state.connect_until_notify(update),
+            ];
+            for handler in self.recording_handlers.replace(handlers) {
+                state.disconnect(handler);
+            }
+            self.update_recording();
+        }
+
+        fn update_recording(&self) {
+            let Some(channel) = self.obj().channel() else {
+                return;
+            };
+            let state = TvRecordingState::get();
+            let recording = state.is_recording_url(&channel.stream_url());
+
+            if recording {
+                self.record_button
+                    .set_icon_name("media-playback-stop-symbolic");
+                self.record_button
+                    .set_tooltip_text(Some(&gettext("Stop Recording")));
+
+                let until = state.until();
+                let tooltip = match format_timestamp_time(until).filter(|_| until > 0) {
+                    // translators: `{}` is replaced by the time when the recording ends, e.g. 21:50
+                    Some(time) => gettext("Recording until {}").replace("{}", &time),
+                    None => gettext("Recording until stopped"),
+                };
+                self.recording_label.set_tooltip_text(Some(&tooltip));
+            } else {
+                self.record_button.set_icon_name("media-record-symbolic");
+                self.record_button
+                    .set_tooltip_text(Some(&gettext("Record")));
+            }
+            self.recording_label.set_visible(recording);
+            // recording needs the stream received in Televido, but a
+            // running recording can always be stopped
+            self.record_button
+                .set_visible(recording || TvSettings::get().fritztv_relay());
+        }
+
         fn set_fritz_icon(&self, channel: &ChannelObject) {
             match channel.logo() {
                 Some(logo) => {
@@ -146,11 +228,23 @@ mod imp {
                     }
                     ChannelKind::Fritz | ChannelKind::FritzRadio => {
                         if let Err(e) =
-                            mpv::play(&channel.name(), &channel.stream_url(), true).await
+                            fritzbox::playback::play(&channel.name(), &channel.stream_url()).await
                         {
                             show_error(e);
                         }
                     }
+                }
+            });
+
+            // starts recording the channel, or stops its recording
+            klass.install_action_async("card.record", None, |slf, _, _| async move {
+                let Some(channel) = slf.channel() else {
+                    return;
+                };
+                if let Err(e) =
+                    fritzbox::playback::record(&channel.name(), &channel.stream_url()).await
+                {
+                    show_error(e);
                 }
             });
         }
@@ -169,6 +263,9 @@ mod imp {
                 slf.imp().set_icon();
                 if let Some(channel) = slf.channel() {
                     slf.imp().watch_progress(&channel);
+                    if channel.kind() != ChannelKind::Zapp {
+                        slf.imp().watch_recording();
+                    }
                 }
             });
 
@@ -211,6 +308,16 @@ mod imp {
                     }
                 ),
             );
+        }
+
+        fn dispose(&self) {
+            let state = TvRecordingState::get();
+            for handler in self.recording_handlers.take() {
+                state.disconnect(handler);
+            }
+            if let Some(handler) = self.relay_handler.take() {
+                TvSettings::get().disconnect(handler);
+            }
         }
     }
     impl WidgetImpl for TvLiveCard {}

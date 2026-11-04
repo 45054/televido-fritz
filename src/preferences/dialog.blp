@@ -133,6 +133,39 @@ template $TvPreferencesDialog: Adw.PreferencesDialog {
       }
 
       Adw.SwitchRow {
+        title: _("Receive the Stream in Televido");
+        subtitle: _("Televido reads the stream of the FRITZ!Box and passes it to mpv. This keeps the program guide current while watching and allows recording. Turn off to let mpv open the stream directly.");
+        active: bind template.fritztv-relay bidirectional;
+        sensitive: bind template.fritztv-enabled;
+      }
+
+      Adw.ActionRow {
+        title: _("Recordings Folder");
+        subtitle: bind template.recordings-directory-path;
+        // the path may contain characters like `&`
+        use-markup: false;
+        sensitive: bind template.fritztv-relay;
+
+        Gtk.Button {
+          icon-name: "edit-undo-symbolic";
+          tooltip-text: _("Use Default Folder");
+          valign: center;
+          visible: bind template.recordings-directory-custom;
+          clicked => $reset_recordings_directory() swapped;
+
+          styles [
+            "flat"
+          ]
+        }
+
+        Gtk.Button {
+          label: _("Change");
+          valign: center;
+          clicked => $select_recordings_directory() swapped;
+        }
+      }
+
+      Adw.SwitchRow {
         title: _("Show Program Guide");
         subtitle: _("Reads the current and next shows from the cable signal. While no channel is playing, the FRITZ!Box is tuned briefly to each frequency.");
         active: bind template.fritztv-epg bidirectional;

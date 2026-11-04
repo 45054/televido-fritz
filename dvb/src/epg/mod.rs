@@ -13,41 +13,47 @@
 //! RTSP sessions while no channel is playing, those of channels without
 //! programme information first.
 //!
-//! - [`rtsp`] is a minimal RTSP client that receives the transport stream.
-//! - [`ts`], [`si`] and [`text`] parse the transport stream and the tables.
-//! - [`scan`] reads the tables of one multiplex.
-//! - [`mux`] groups the channels by multiplex and finds their service.
-//! - [`store`] holds the events.
-//! - [`tuner`] and [`sweep`] share the tuner with playback.
+//! The transport stream is received and parsed by the modules at the crate
+//! root: [`crate::rtsp`] is a minimal RTSP client, [`crate::ts`],
+//! [`crate::si`] and [`crate::text`] parse the transport stream and the
+//! tables. The private submodules of this module build the guide from them:
+//!
+//! - `scan` reads the tables of one multiplex.
+//! - `mux` groups the channels by multiplex and finds their service.
+//! - `store` holds the events.
+//! - `tuner` and `sweep` share the tuner with playback (see [`Tuner`]).
+//! - `feed` reads the guide from the channel that is playing (see
+//!   [`LiveFeed`]).
 
+mod feed;
 #[cfg(test)]
-mod mock;
+pub(crate) mod mock;
 mod mux;
-mod rtsp;
 mod scan;
-mod si;
 mod store;
 mod sweep;
-mod text;
-mod ts;
 mod tuner;
 
 use std::{
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, MutexGuard,
-    },
+    sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 
-use tokio::sync::{mpsc::UnboundedSender, watch};
+use tokio::sync::{broadcast, mpsc::UnboundedSender, watch, OnceCell};
 
-use self::{store::EpgStore, sweep::Timing};
-use super::FritzChannel;
+use self::{mux::Mux, store::EpgStore, sweep::Timing};
+use crate::{Chunk, FritzChannel};
 
-pub use self::{mux::identity, store::NowNext, sweep::unix_now, tuner::Tuner};
+pub use self::{
+    feed::LiveFeed,
+    mux::identity,
+    store::{Event, NowNext},
+    sweep::unix_now,
+    tuner::Tuner,
+};
 
+/// The programme guide of the channels of the FRITZ!Box.
 #[derive(Debug)]
 pub struct Epg {
     inner: Arc<Inner>,
@@ -60,8 +66,17 @@ struct Inner {
     store: Mutex<EpgStore>,
     tuner: Arc<Tuner>,
     cache_file: PathBuf,
-    cache_loaded: AtomicBool,
+    /// Set once the cache was read, by the sweep or a feed.
+    cache_loaded: OnceCell<()>,
+    /// Serializes writing the cache, as the sweep and a feed may save it at
+    /// the same time.
+    cache_lock: tokio::sync::Mutex<()>,
     timing: Timing,
+    /// The multiplexes of the channels given to [`Epg::start`], shared by
+    /// the sweep and the feed.
+    muxes: Mutex<Arc<[Mux]>>,
+    /// The receiver of change notifications while the guide is started.
+    notify: Mutex<Option<UnboundedSender<()>>>,
 }
 
 impl Epg {
@@ -76,13 +91,17 @@ impl Epg {
                 store: Mutex::new(EpgStore::default()),
                 tuner: Arc::new(Tuner::default()),
                 cache_file,
-                cache_loaded: AtomicBool::new(false),
+                cache_loaded: OnceCell::new(),
+                cache_lock: tokio::sync::Mutex::new(()),
                 timing,
+                muxes: Mutex::new(Arc::new([])),
+                notify: Mutex::new(None),
             }),
             cancel: Mutex::new(None),
         }
     }
 
+    /// The tuner shared by playback (see [`crate::Relay`]) and the sweep.
     pub fn tuner(&self) -> Arc<Tuner> {
         self.inner.tuner.clone()
     }
@@ -102,13 +121,33 @@ impl Epg {
         let (cancel, cancelled) = watch::channel(());
         // dropping the previous sender stops the previous sweep
         *self.cancel.lock().unwrap() = Some(cancel);
+        let muxes: Arc<[Mux]> = mux::group(&channels).into();
+        *self.inner.muxes.lock().unwrap() = muxes.clone();
+        *self.inner.notify.lock().unwrap() = Some(notify.clone());
 
-        tokio::spawn(sweep::run(self.inner.clone(), channels, cancelled, notify));
+        tokio::spawn(sweep::run(self.inner.clone(), muxes, cancelled, notify));
     }
 
-    /// Stops the sweep. A running scan ends its session first.
+    /// Stops the sweep. A running scan ends its session first. Running
+    /// feeds stop adding to the guide.
     pub fn stop(&self) {
         self.cancel.lock().unwrap().take();
+        *self.inner.muxes.lock().unwrap() = Arc::new([]);
+        self.inner.notify.lock().unwrap().take();
+    }
+
+    /// Reads the programme guide of the multiplex of `channel_url` from
+    /// `receiver`, a consumer of the [`crate::Relay`] that plays the
+    /// channel, until the relay ends.
+    ///
+    /// Only while the guide is started (see [`Epg::start`]) and the channel
+    /// is one of its channels; otherwise the feed only drains the receiver,
+    /// so the application may create it unconditionally. The notification
+    /// sender of `start` is told about the new events.
+    ///
+    /// Must be called within the tokio runtime.
+    pub fn feed(&self, channel_url: &str, receiver: broadcast::Receiver<Chunk>) -> LiveFeed {
+        LiveFeed::start(self.inner.clone(), channel_url, receiver)
     }
 
     /// Stops the sweep and waits (for a moment) until a running scan has
@@ -129,21 +168,25 @@ impl Inner {
         self.store.lock().unwrap()
     }
 
-    /// Loads the cached programme data once.
+    /// Loads the cached programme data once. Concurrent callers wait until
+    /// it is loaded.
     async fn load_cache(&self) {
-        if self.cache_loaded.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        match tokio::fs::read(&self.cache_file).await {
-            Ok(json) => {
-                *self.store() = EpgStore::from_json(&json, sweep::unix_now());
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-            Err(e) => tracing::warn!("failed to read the programme guide cache: {e}"),
-        }
+        self.cache_loaded
+            .get_or_init(|| async {
+                match tokio::fs::read(&self.cache_file).await {
+                    Ok(json) => {
+                        *self.store() = EpgStore::from_json(&json, sweep::unix_now());
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(e) => tracing::warn!("failed to read the programme guide cache: {e}"),
+                }
+            })
+            .await;
     }
 
     async fn save_cache(&self) {
+        // the newest data is written last
+        let _lock = self.cache_lock.lock().await;
         let json = match self.store().to_json() {
             Ok(json) => json,
             Err(e) => {
@@ -174,9 +217,9 @@ mod tests {
 
     use super::{
         mock::{MockBox, MockMux, MockService, ServiceInformationOnly},
-        si::ServiceKey,
         *,
     };
+    use crate::si::ServiceKey;
 
     fn service(
         id: u16,
@@ -247,6 +290,8 @@ mod tests {
             settle: Duration::from_millis(50),
             poll: Duration::from_millis(100),
             retry: Duration::from_secs(60),
+            feed_update: Duration::from_millis(200),
+            feed_save: Duration::from_secs(60),
         }
     }
 
@@ -401,7 +446,12 @@ mod tests {
         let epg = Epg::with_timing(cache_file("stopping.json"), timing());
         let (cancel, cancelled) = watch::channel(());
         let (notify, _notifications) = unbounded_channel();
-        let sweep = tokio::spawn(sweep::run(epg.inner.clone(), channels, cancelled, notify));
+        let sweep = tokio::spawn(sweep::run(
+            epg.inner.clone(),
+            mux::group(&channels).into(),
+            cancelled,
+            notify,
+        ));
 
         timeout(Duration::from_secs(5), async {
             while server.setups.load(Ordering::SeqCst) == 0 {
@@ -451,6 +501,122 @@ mod tests {
             requested[2..].iter().all(|pids| pids != "0,16,17,18,20"),
             "{requested:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn reads_the_guide_of_the_playing_channel() {
+        let server = MockBox::start(muxes()).await;
+        let channels = vec![
+            channel(&server, "Das Erste HD", 450, 256),
+            channel(&server, "ZDF HD", 450, 512),
+        ];
+        let cache = cache_file("feed.json");
+        let _ = std::fs::remove_file(&cache);
+        let epg = Epg::with_timing(cache.clone(), timing());
+
+        // the channel plays before the sweep starts, which therefore waits
+        let relay = crate::Relay::open(&channels[0].url, epg.tuner())
+            .await
+            .unwrap();
+        let (notify, mut notifications) = unbounded_channel();
+        epg.start(channels.clone(), notify);
+        let feed = epg.feed(&channels[0].url, relay.subscribe());
+
+        let now = unix_now();
+        wait_for(&mut notifications, || {
+            channels
+                .iter()
+                .all(|channel| epg.now_next(&channel.url, now).is_some())
+        })
+        .await;
+        let now_next = epg.now_next(&channels[0].url, now).unwrap();
+        assert_eq!(now_next.current.unwrap().title, "Tagesschau");
+        assert_eq!(now_next.next.unwrap().title, "Wetter");
+        assert_eq!(
+            epg.now_next(&channels[1].url, now)
+                .unwrap()
+                .current
+                .unwrap()
+                .title,
+            "heute"
+        );
+        assert_eq!(server.setups.load(Ordering::SeqCst), 1, "only the relay");
+        assert!(!feed.is_finished());
+
+        // the feed ends with the relay and saves the cache
+        relay.stop();
+        relay.finished().await.unwrap();
+        timeout(Duration::from_secs(5), feed.join()).await.unwrap();
+        assert!(cache.exists());
+
+        // the sweep doesn't scan the multiplex that just played
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(server.setups.load(Ordering::SeqCst), 1);
+        epg.stop();
+    }
+
+    #[tokio::test]
+    async fn a_feed_adds_what_it_collected_while_the_guide_was_off() {
+        let server = MockBox::start(muxes()).await;
+        let channels = vec![channel(&server, "Das Erste HD", 450, 256)];
+        let cache = cache_file("feed-restart.json");
+        let _ = std::fs::remove_file(&cache);
+        let epg = Epg::with_timing(cache, timing());
+
+        let relay = crate::Relay::open(&channels[0].url, epg.tuner())
+            .await
+            .unwrap();
+        let (notify, _notifications) = unbounded_channel();
+        epg.start(channels.clone(), notify);
+        let feed = epg.feed(&channels[0].url, relay.subscribe());
+        // the guide is turned off before the feed added anything
+        epg.stop();
+
+        // the feed collects all tables meanwhile, which the mock repeats
+        // without ever changing their version
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        let now = unix_now();
+        assert!(epg.now_next(&channels[0].url, now).is_none());
+
+        // the playing channel isn't scanned, so only the feed can add them
+        let (notify, mut notifications) = unbounded_channel();
+        epg.start(channels.clone(), notify);
+        wait_for(&mut notifications, || {
+            epg.now_next(&channels[0].url, now).is_some()
+        })
+        .await;
+        let now_next = epg.now_next(&channels[0].url, now).unwrap();
+        assert_eq!(now_next.current.unwrap().title, "Tagesschau");
+        assert_eq!(server.setups.load(Ordering::SeqCst), 1, "only the relay");
+
+        relay.stop();
+        relay.finished().await.unwrap();
+        timeout(Duration::from_secs(5), feed.join()).await.unwrap();
+        epg.stop();
+    }
+
+    #[tokio::test]
+    async fn a_feed_of_an_unknown_channel_drains_the_stream() {
+        let epg = Epg::with_timing(cache_file("feed-unknown.json"), timing());
+        let (sender, receiver) = broadcast::channel(4);
+        let feed = epg.feed("rtsp://127.0.0.1/?freq=450&pids=0,256", receiver);
+
+        for _ in 0..10 {
+            let _ = sender.send(vec![0x47; 188].into());
+            tokio::task::yield_now().await;
+        }
+        assert!(!feed.is_finished());
+        drop(sender);
+        timeout(Duration::from_secs(5), feed.join()).await.unwrap();
+        assert!(epg
+            .now_next("rtsp://127.0.0.1/?freq=450&pids=0,256", unix_now())
+            .is_none());
+
+        // stopping ends a feed, too
+        let (_sender, receiver) = broadcast::channel(4);
+        let feed = epg.feed("rtsp://127.0.0.1/?freq=450&pids=0,256", receiver);
+        feed.stop();
+        timeout(Duration::from_secs(5), feed.join()).await.unwrap();
     }
 
     #[tokio::test]
