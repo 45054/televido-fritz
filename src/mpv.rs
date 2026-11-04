@@ -273,6 +273,20 @@ pub async fn stop() -> bool {
     mode.finish()
 }
 
+/// Whether mpv plays a FRITZ!Box channel that it opened itself (see
+/// [`play`]) and therefore holds the tuner.
+pub fn holds_tuner() -> bool {
+    CURRENT.with(|current| {
+        matches!(
+            current.borrow().as_ref(),
+            Some(Current {
+                mode: Mode::Direct { uses_tuner: true },
+                ..
+            })
+        )
+    })
+}
+
 /// Terminates the running mpv process without waiting, e.g. on shutdown.
 pub fn terminate() {
     if let Some(current) = CURRENT.with(|current| current.take()) {

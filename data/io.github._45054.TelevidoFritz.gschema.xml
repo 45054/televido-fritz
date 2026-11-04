@@ -94,6 +94,11 @@
 			<default>true</default>
 			<summary>Whether Televido receives the stream itself and pipes it to mpv</summary>
 		</key>
+		<key name="recordings-directory" type="s">
+			<default>""</default>
+			<summary>The folder that recordings are written to</summary>
+			<description>Empty for the folder “Televido” in the Videos folder.</description>
+		</key>
 		<key name="mpv-arguments-fritzbox" type="as">
 			<default>[
 				"--deinterlace=auto",

@@ -6,8 +6,13 @@
 use adw::{gio, glib, gtk, prelude::*, subclass::prelude::*};
 
 use crate::{
-    application::TvApplication, config::PROFILE, fritzbox::TvFritzView, live::TvLiveView,
-    mediathek::TvMediathekView, settings::TvSettings,
+    application::TvApplication,
+    config::PROFILE,
+    fritzbox::{playback, TvFritzView, TvRecordingState},
+    live::TvLiveView,
+    mediathek::TvMediathekView,
+    settings::TvSettings,
+    utils::spawn,
 };
 
 mod imp {
@@ -108,7 +113,24 @@ mod imp {
         }
     }
     impl WidgetImpl for TvWindow {}
-    impl WindowImpl for TvWindow {}
+    impl WindowImpl for TvWindow {
+        /// Asks before a running recording ends with the window.
+        fn close_request(&self) -> glib::Propagation {
+            if !TvRecordingState::get().is_recording() {
+                return self.parent_close_request();
+            }
+
+            let window = self.obj().clone();
+            spawn(async move {
+                if playback::confirm_quit().await {
+                    playback::stop_recording();
+                    // nothing records any more, see above
+                    window.close();
+                }
+            });
+            glib::Propagation::Stop
+        }
+    }
     impl ApplicationWindowImpl for TvWindow {}
     impl AdwApplicationWindowImpl for TvWindow {}
 }

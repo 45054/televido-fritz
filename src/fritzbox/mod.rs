@@ -15,10 +15,11 @@
 //! `televido-dvb`: the playlist parser ([`televido_dvb::m3u`]), the RTSP
 //! client and the transport stream parsers, and the programme guide, which
 //! is read from the DVB stream itself ([`televido_dvb::epg`]). [`playback`]
-//! plays a channel through the relay of `televido-dvb`.
+//! plays and records a channel through the relay of `televido-dvb`.
 
 mod logos;
 pub mod playback;
+mod recording;
 mod tvapp;
 mod view;
 
@@ -33,6 +34,7 @@ use crate::config::{APP_ID, PROJECT_URL, VERSION};
 
 pub use self::{
     logos::{LogoIndex, LogoSources},
+    recording::{recordings_directory, TvRecordingState},
     view::TvFritzView,
 };
 pub use televido_dvb::{unix_now, Epg, FritzChannel, NowNext};

@@ -53,6 +53,18 @@ template $TvLiveCard: Gtk.ListBoxRow {
               "circular"
             ]
           }
+
+          // FritzTV channels, while the stream is received in Televido
+          Gtk.Button record_button {
+            icon-name: "media-record-symbolic";
+            tooltip-text: _("Record");
+            action-name: "card.record";
+            visible: false;
+
+            styles [
+              "circular"
+            ]
+          }
         }
       }
 
@@ -95,6 +107,16 @@ template $TvLiveCard: Gtk.ListBoxRow {
             label: bind template.channel as <$ChannelObject>.name;
             tooltip-text: bind template.channel as <$ChannelObject>.name;
             ellipsize: end;
+          }
+
+          Gtk.Label recording_label {
+            label: _("Recording");
+            visible: false;
+
+            styles [
+              "caption-heading",
+              "error"
+            ]
           }
 
           Gtk.Label timespan {

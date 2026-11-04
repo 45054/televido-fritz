@@ -15,6 +15,7 @@
     "--device=dri",
     "--socket=pulseaudio",
     "--socket=wayland",
+    "--filesystem=xdg-videos:create",
     "--talk-name=org.gnome.Totem",
     "--talk-name=io.github.celluloid_player.Celluloid",
     "--talk-name=com.github.rafostar.Clapper",

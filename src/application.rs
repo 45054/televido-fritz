@@ -16,7 +16,7 @@ use smart_default::SmartDefault;
 
 use crate::{
     config::{APP_ID, PROFILE, VERSION},
-    fritzbox::{playback, FritzBox},
+    fritzbox::{playback, FritzBox, TvRecordingState},
     launcher::{ExternalProgram, ExternalProgramType, ProgramSelector},
     mpv,
     preferences::TvPreferencesDialog,
@@ -255,7 +255,20 @@ impl TvApplication {
 
     fn setup_gactions(&self) {
         let quit_action = gio::ActionEntry::builder("quit")
-            .activate(move |app: &Self, _, _| app.quit())
+            .activate(move |app: &Self, _, _| {
+                // quitting ends a running recording, like closing the window
+                if TvRecordingState::get().is_recording() {
+                    let app = app.clone();
+                    spawn(async move {
+                        if playback::confirm_quit().await {
+                            playback::stop_recording();
+                            app.quit();
+                        }
+                    });
+                } else {
+                    app.quit();
+                }
+            })
             .build();
         let about_action = gio::ActionEntry::builder("about")
             .activate(move |app: &Self, _, _| app.show_about())
